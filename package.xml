@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package>
+  <name>vive_image_view</name>
+  <version>0.0.1</version>
+  <description>The vive_image_view package</description>
+  <author>ishiguroJSK</author>
+  <author email="ishiguro@jsk.imi.i.u-tokyo.ac.jp">ishiguroJSK</author>
+  
+  <license>BSD</license>
+  <maintainer email="ishiguro@jsk.imi.i.u-tokyo.ac.jp">ishiguroJSK</maintainer>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <build_depend>roscpp</build_depend>  
+  <build_depend>roslib</build_depend>  
+  <build_depend>geometry_msgs</build_depend>
+  <build_depend>std_srvs</build_depend>
+  <build_depend>tf</build_depend>
+  
+  <run_depend>geometry_msgs</run_depend>
+  <run_depend>std_srvs</run_depend>
+  <build_depend>roslib</build_depend>
+  
+</package>

@@ -1,0 +1,20 @@
+\.pcd$
+*.pyc
+
+# Ignore generated docs
+.dox$
+.wikidoc$
+
+# eclipse stuff
+.project
+.cproject
+
+# Emacs
+.#*
+.~/
+
+# Catkin custom files
+CATKIN_IGNORE
+
+# gedit
+*~
