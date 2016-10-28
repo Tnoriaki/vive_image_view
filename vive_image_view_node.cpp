@@ -1,5 +1,15 @@
 #include <ros/package.h>
 
+
+#include <image_view/ImageViewConfig.h>
+#include <ros/ros.h>
+#include <image_transport/image_transport.h>
+#include <dynamic_reconfigure/server.h>
+#include <cv_bridge/cv_bridge.h>
+#include <opencv2/highgui/highgui.hpp>
+#include <boost/format.hpp>
+#include <boost/thread.hpp>
+#include <boost/filesystem.hpp>
 //========= Copyright Valve Corporation ============//
 
 #include <SDL.h>
@@ -106,6 +116,8 @@ public:
 
 	void SetupRenderModelForTrackedDevice( vr::TrackedDeviceIndex_t unTrackedDeviceIndex );
 	CGLRenderModel *FindOrLoadRenderModel( const char *pchRenderModelName );
+	bool UpdateTexturemaps();
+	cv::Mat ros_image;
 
 private: 
 	bool m_bDebugOpenGL;
@@ -214,6 +226,7 @@ private: // OpenGL bookkeeping
 
 	std::vector< CGLRenderModel * > m_vecRenderModels;
 	CGLRenderModel *m_rTrackedDeviceToRenderModel[ vr::k_unMaxTrackedDeviceCount ];
+
 };
 
 //-----------------------------------------------------------------------------
@@ -960,10 +973,7 @@ bool CMainApplication::CreateAllShaders()
 //-----------------------------------------------------------------------------
 bool CMainApplication::SetupTexturemaps()
 {
-	std::string sExecutableDirectory = Path_StripFilename( Path_GetExecutablePath() );
-//	std::string strFullPath = Path_MakeAbsolute( "../texture.png", sExecutableDirectory );
 	std::string strFullPath = ros::package::getPath("vive_image_view") + "/texture.png";
-
 	
 	std::vector<unsigned char> imageRGBA;
 	unsigned nImageWidth, nImageHeight;
@@ -1015,19 +1025,26 @@ void CMainApplication::SetupScene()
 	
 	Matrix4 mat = matScale * matTransform;
 
-	for( int z = 0; z< m_iSceneVolumeDepth; z++ )
-	{
-		for( int y = 0; y< m_iSceneVolumeHeight; y++ )
-		{
-			for( int x = 0; x< m_iSceneVolumeWidth; x++ )
-			{
-				AddCubeToScene( mat, vertdataarray );
-				mat = mat * Matrix4().translate( m_fScaleSpacing, 0, 0 );
-			}
-			mat = mat * Matrix4().translate( -((float)m_iSceneVolumeWidth) * m_fScaleSpacing, m_fScaleSpacing, 0 );
-		}
-		mat = mat * Matrix4().translate( 0, -((float)m_iSceneVolumeHeight) * m_fScaleSpacing, m_fScaleSpacing );
-	}
+//	for( int z = 0; z< m_iSceneVolumeDepth; z++ )
+//	{
+//		for( int y = 0; y< m_iSceneVolumeHeight; y++ )
+//		{
+//			for( int x = 0; x< m_iSceneVolumeWidth; x++ )
+//			{
+//				AddCubeToScene( mat, vertdataarray );
+//				mat = mat * Matrix4().translate( m_fScaleSpacing, 0, 0 );
+//			}
+//			mat = mat * Matrix4().translate( -((float)m_iSceneVolumeWidth) * m_fScaleSpacing, m_fScaleSpacing, 0 );
+//		}
+//		mat = mat * Matrix4().translate( 0, -((float)m_iSceneVolumeHeight) * m_fScaleSpacing, m_fScaleSpacing );
+//	}
+
+
+	Matrix4 mat2;
+	mat2.scale(10,10,1);
+	mat2.translate(-5,-5,0);
+	AddCubeToScene( mat2, vertdataarray );
+
 	m_uiVertcount = vertdataarray.size()/5;
 	
 	glGenVertexArrays( 1, &m_unSceneVAO );
@@ -1085,48 +1102,49 @@ void CMainApplication::AddCubeToScene( Matrix4 mat, std::vector<float> &vertdata
 	Vector4 G = mat * Vector4( 1, 1, 1, 1 );
 	Vector4 H = mat * Vector4( 0, 1, 1, 1 );
 
-	// triangles instead of quads
-	AddCubeVertex( E.x, E.y, E.z, 0, 1, vertdata ); //Front
-	AddCubeVertex( F.x, F.y, F.z, 1, 1, vertdata );
-	AddCubeVertex( G.x, G.y, G.z, 1, 0, vertdata );
-	AddCubeVertex( G.x, G.y, G.z, 1, 0, vertdata );
-	AddCubeVertex( H.x, H.y, H.z, 0, 0, vertdata );
-	AddCubeVertex( E.x, E.y, E.z, 0, 1, vertdata );
-					 
+
+//	// triangles instead of quads
+//	AddCubeVertex( E.x, E.y, E.z, 0, 1, vertdata ); //Front
+//	AddCubeVertex( F.x, F.y, F.z, 1, 1, vertdata );
+//	AddCubeVertex( G.x, G.y, G.z, 1, 0, vertdata );
+//	AddCubeVertex( G.x, G.y, G.z, 1, 0, vertdata );
+//	AddCubeVertex( H.x, H.y, H.z, 0, 0, vertdata );
+//	AddCubeVertex( E.x, E.y, E.z, 0, 1, vertdata );
+
 	AddCubeVertex( B.x, B.y, B.z, 0, 1, vertdata ); //Back
 	AddCubeVertex( A.x, A.y, A.z, 1, 1, vertdata );
 	AddCubeVertex( D.x, D.y, D.z, 1, 0, vertdata );
 	AddCubeVertex( D.x, D.y, D.z, 1, 0, vertdata );
 	AddCubeVertex( C.x, C.y, C.z, 0, 0, vertdata );
 	AddCubeVertex( B.x, B.y, B.z, 0, 1, vertdata );
-					
-	AddCubeVertex( H.x, H.y, H.z, 0, 1, vertdata ); //Top
-	AddCubeVertex( G.x, G.y, G.z, 1, 1, vertdata );
-	AddCubeVertex( C.x, C.y, C.z, 1, 0, vertdata );
-	AddCubeVertex( C.x, C.y, C.z, 1, 0, vertdata );
-	AddCubeVertex( D.x, D.y, D.z, 0, 0, vertdata );
-	AddCubeVertex( H.x, H.y, H.z, 0, 1, vertdata );
-				
-	AddCubeVertex( A.x, A.y, A.z, 0, 1, vertdata ); //Bottom
-	AddCubeVertex( B.x, B.y, B.z, 1, 1, vertdata );
-	AddCubeVertex( F.x, F.y, F.z, 1, 0, vertdata );
-	AddCubeVertex( F.x, F.y, F.z, 1, 0, vertdata );
-	AddCubeVertex( E.x, E.y, E.z, 0, 0, vertdata );
-	AddCubeVertex( A.x, A.y, A.z, 0, 1, vertdata );
-					
-	AddCubeVertex( A.x, A.y, A.z, 0, 1, vertdata ); //Left
-	AddCubeVertex( E.x, E.y, E.z, 1, 1, vertdata );
-	AddCubeVertex( H.x, H.y, H.z, 1, 0, vertdata );
-	AddCubeVertex( H.x, H.y, H.z, 1, 0, vertdata );
-	AddCubeVertex( D.x, D.y, D.z, 0, 0, vertdata );
-	AddCubeVertex( A.x, A.y, A.z, 0, 1, vertdata );
 
-	AddCubeVertex( F.x, F.y, F.z, 0, 1, vertdata ); //Right
-	AddCubeVertex( B.x, B.y, B.z, 1, 1, vertdata );
-	AddCubeVertex( C.x, C.y, C.z, 1, 0, vertdata );
-	AddCubeVertex( C.x, C.y, C.z, 1, 0, vertdata );
-	AddCubeVertex( G.x, G.y, G.z, 0, 0, vertdata );
-	AddCubeVertex( F.x, F.y, F.z, 0, 1, vertdata );
+//	AddCubeVertex( H.x, H.y, H.z, 0, 1, vertdata ); //Top
+//	AddCubeVertex( G.x, G.y, G.z, 1, 1, vertdata );
+//	AddCubeVertex( C.x, C.y, C.z, 1, 0, vertdata );
+//	AddCubeVertex( C.x, C.y, C.z, 1, 0, vertdata );
+//	AddCubeVertex( D.x, D.y, D.z, 0, 0, vertdata );
+//	AddCubeVertex( H.x, H.y, H.z, 0, 1, vertdata );
+//
+//	AddCubeVertex( A.x, A.y, A.z, 0, 1, vertdata ); //Bottom
+//	AddCubeVertex( B.x, B.y, B.z, 1, 1, vertdata );
+//	AddCubeVertex( F.x, F.y, F.z, 1, 0, vertdata );
+//	AddCubeVertex( F.x, F.y, F.z, 1, 0, vertdata );
+//	AddCubeVertex( E.x, E.y, E.z, 0, 0, vertdata );
+//	AddCubeVertex( A.x, A.y, A.z, 0, 1, vertdata );
+//
+//	AddCubeVertex( A.x, A.y, A.z, 0, 1, vertdata ); //Left
+//	AddCubeVertex( E.x, E.y, E.z, 1, 1, vertdata );
+//	AddCubeVertex( H.x, H.y, H.z, 1, 0, vertdata );
+//	AddCubeVertex( H.x, H.y, H.z, 1, 0, vertdata );
+//	AddCubeVertex( D.x, D.y, D.z, 0, 0, vertdata );
+//	AddCubeVertex( A.x, A.y, A.z, 0, 1, vertdata );
+//
+//	AddCubeVertex( F.x, F.y, F.z, 0, 1, vertdata ); //Right
+//	AddCubeVertex( B.x, B.y, B.z, 1, 1, vertdata );
+//	AddCubeVertex( C.x, C.y, C.z, 1, 0, vertdata );
+//	AddCubeVertex( C.x, C.y, C.z, 1, 0, vertdata );
+//	AddCubeVertex( G.x, G.y, G.z, 0, 0, vertdata );
+//	AddCubeVertex( F.x, F.y, F.z, 0, 1, vertdata );
 }
 
 
@@ -1909,12 +1927,169 @@ void CGLRenderModel::Draw()
 }
 
 
+
+
+
+
+
+
+int g_count;
+cv::Mat g_last_image;
+boost::format g_filename_format;
+boost::mutex g_image_mutex;
+std::string g_window_name;
+bool g_do_dynamic_scaling;
+int g_colormap;
+
+
+CMainApplication *pMainApplication;
+ros::WallTime t_gl_old,t_gl_now,t_ros_old,t_ros_now,t_rcv_old,t_rcv_now;
+bool imageCb_called = false;
+
+void reconfigureCb(image_view::ImageViewConfig &config, uint32_t level)
+{
+  boost::mutex::scoped_lock lock(g_image_mutex);
+  g_do_dynamic_scaling = config.do_dynamic_scaling;
+//  g_colormap = config.colormap;
+}
+
+
+bool CMainApplication::UpdateTexturemaps()
+{
+//	glGenTextures(1, &m_iTexture );
+	glBindTexture( GL_TEXTURE_2D, m_iTexture );
+
+	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, ros_image.cols, ros_image.rows, 0, GL_RGB, GL_UNSIGNED_BYTE, ros_image.data );
+
+	glGenerateMipmap(GL_TEXTURE_2D);
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
+	GLfloat fLargest;
+	glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargest);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, fLargest);
+	glBindTexture( GL_TEXTURE_2D, 0 );
+	return ( m_iTexture != 0 );
+}
+
+
+
+
+void imageCb(const sensor_msgs::ImageConstPtr& msg)
+{
+  boost::mutex::scoped_lock lock(g_image_mutex);
+
+  // Convert to OpenCV native BGR color
+  try {
+    cv_bridge::CvtColorForDisplayOptions options;
+    options.do_dynamic_scaling = g_do_dynamic_scaling;
+    options.colormap = g_colormap;
+//    g_last_image = cv_bridge::cvtColorForDisplay(cv_bridge::toCvShare(msg), "", options)->image;
+//    pMainApplication->ros_image = cv_bridge::cvtColorForDisplay(cv_bridge::toCvShare(msg), "", options)->image;
+    pMainApplication->ros_image = cv_bridge::toCvShare(msg)->image;
+	t_rcv_now = ros::WallTime::now();
+	std::cout<<"imageCb() subscribed "<<pMainApplication->ros_image.cols<<" x "<<pMainApplication->ros_image.rows<<" @ "<<1.0/(t_rcv_now - t_rcv_old).toSec()<<" fps"<<std::endl;
+	t_rcv_old = t_rcv_now;
+    imageCb_called = true;
+  } catch (cv_bridge::Exception& e) {
+    ROS_ERROR_THROTTLE(30, "Unable to convert '%s' image for display: '%s'",
+                       msg->encoding.c_str(), e.what());
+  }
+  if (!g_last_image.empty()) {
+//    const cv::Mat &image = g_last_image;
+//    cv::imshow(g_window_name, image);
+//    cv::waitKey(3);
+  }
+}
+
+static void mouseCb(int event, int x, int y, int flags, void* param)
+{
+  if (event == cv::EVENT_LBUTTONDOWN) {
+    ROS_WARN_ONCE("Left-clicking no longer saves images. Right-click instead.");
+    return;
+  } else if (event != cv::EVENT_RBUTTONDOWN) {
+    return;
+  }
+
+  boost::mutex::scoped_lock lock(g_image_mutex);
+
+  const cv::Mat &image = g_last_image;
+
+  if (image.empty()) {
+    ROS_WARN("Couldn't save image, no data!");
+    return;
+  }
+
+  std::string filename = (g_filename_format % g_count).str();
+  if (cv::imwrite(filename, image)) {
+    ROS_INFO("Saved image %s", filename.c_str());
+    g_count++;
+  } else {
+    boost::filesystem::path full_path = boost::filesystem::complete(filename);
+    ROS_ERROR_STREAM("Failed to save image. Have permission to write there?: " << full_path);
+  }
+}
+
+
+
 //-----------------------------------------------------------------------------
 // Purpose:
 //-----------------------------------------------------------------------------
 int main(int argc, char *argv[])
 {
-	CMainApplication *pMainApplication = new CMainApplication( argc, argv );
+	 ros::init(argc, argv, "vive_image_view", ros::init_options::AnonymousName);
+	  if (ros::names::remap("image") == "image") {
+	    ROS_WARN("Topic 'image' has not been remapped! Typical command-line usage:\n"
+	             "\t$ rosrun image_view image_view image:=<image topic> [transport]");
+	  }
+
+	  ros::NodeHandle nh;
+	  ros::NodeHandle local_nh("~");
+
+	  // Default window name is the resolved topic name
+	  std::string topic = nh.resolveName("image");
+	  local_nh.param("window_name", g_window_name, topic);
+
+	  std::string format_string;
+	  local_nh.param("filename_format", format_string, std::string("frame%04i.jpg"));
+	  g_filename_format.parse(format_string);
+
+	  // Handle window size
+	  bool autosize;
+	  local_nh.param("autosize", autosize, false);
+//	  cv::namedWindow(g_window_name, autosize ? (CV_WINDOW_AUTOSIZE | CV_WINDOW_KEEPRATIO | CV_GUI_EXPANDED) : 0);
+//	  cv::setMouseCallback(g_window_name, &mouseCb);
+
+	  // Start the OpenCV window thread so we don't have to waitKey() somewhere
+//	  cv::startWindowThread();
+
+	  // Handle transport
+	  // priority:
+	  //    1. command line argument
+	  //    2. rosparam '~image_transport'
+	  std::string transport;
+	  local_nh.param("image_transport", transport, std::string("raw"));
+//	  ros::V_string myargv;
+//	  ros::removeROSArgs(argc, argv, myargv);
+//	  for (size_t i = 1; i < myargv.size(); ++i) {
+//	    if (myargv[i][0] != '-') {
+//	      transport = myargv[i];
+//	      break;
+//	    }
+//	  }
+	  ROS_INFO_STREAM("Using transport \"" << transport << "\"");
+	  image_transport::ImageTransport it(nh);
+	  image_transport::TransportHints hints(transport, ros::TransportHints(), local_nh);
+	  image_transport::Subscriber sub = it.subscribe(topic, 1, imageCb, hints);
+
+//	  dynamic_reconfigure::Server<image_view::ImageViewConfig> srv;
+//	  dynamic_reconfigure::Server<image_view::ImageViewConfig>::CallbackType f =
+//	    boost::bind(&reconfigureCb, _1, _2);
+//	  srv.setCallback(f);
+
+
+		pMainApplication = new CMainApplication( argc, argv );
 
 	if (!pMainApplication->BInit())
 	{
@@ -1922,9 +2097,32 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	pMainApplication->RunMainLoop();
+	//RunMainLoop
+	bool bQuit = false;
+	SDL_StartTextInput();
+	SDL_ShowCursor( SDL_DISABLE );
 
+	t_gl_old = t_ros_old = t_rcv_old = ros::WallTime::now();
+
+	while ( !bQuit && ros::ok())
+	{
+		if(imageCb_called){
+			pMainApplication->UpdateTexturemaps();
+			t_ros_now = ros::WallTime::now();
+			std::cout<<"pMainApplication->UpdateTexturemaps() @ "<<1.0/(t_ros_now - t_ros_old).toSec()<<" fps"<<std::endl;
+			t_ros_old = t_ros_now;
+			imageCb_called = false;
+		}
+		bQuit = pMainApplication->HandleInput();
+		pMainApplication->RenderFrame();
+		t_gl_now = ros::WallTime::now();
+		std::cout<<"pMainApplication->RenderFrame() @ "<<1.0/(t_gl_now - t_gl_old).toSec()<<" fps"<<std::endl;
+		t_gl_old = t_gl_now;
+		ros::spinOnce();
+	}
+	SDL_StopTextInput();
+
+//	  cv::destroyWindow(g_window_name);
 	pMainApplication->Shutdown();
-
 	return 0;
 }
