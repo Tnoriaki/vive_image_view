@@ -26,6 +26,9 @@
 #include "shared/Matrices.h"
 #include "shared/pathtools.h"
 
+
+std::string topic_L,topic_R,mode;
+
 //TODO: proper linux compatibility
 #ifdef __linux__
 #include <shared/linuxcompathack.h>
@@ -117,7 +120,7 @@ public:
 	void SetupRenderModelForTrackedDevice( vr::TrackedDeviceIndex_t unTrackedDeviceIndex );
 	CGLRenderModel *FindOrLoadRenderModel( const char *pchRenderModelName );
 	bool UpdateTexturemaps();
-	cv::Mat ros_image;
+	cv::Mat ros_image,ros_image_L,ros_image_R;
 
 private: 
 	bool m_bDebugOpenGL;
@@ -163,6 +166,8 @@ private: // OpenGL bookkeeping
 	float m_fFarClip;
 
 	GLuint m_iTexture;
+	GLuint m_LEyeTexture;
+	GLuint m_REyeTexture;
 
 	unsigned int m_uiVertcount;
 
@@ -447,6 +452,7 @@ bool CMainApplication::BInit()
  	m_fFarClip = 30.0f;
  
  	m_iTexture = 0;
+	m_LEyeTexture = m_REyeTexture = 0;
  	m_uiVertcount = 0;
  
 // 		m_MillisecondsTimer.start(1, this);
@@ -706,9 +712,15 @@ void CMainApplication::RenderFrame()
 		RenderStereoTargets();
 		RenderDistortion();
 
-		vr::Texture_t leftEyeTexture = {(void*)leftEyeDesc.m_nResolveTextureId, vr::API_OpenGL, vr::ColorSpace_Gamma };
+		vr::Texture_t leftEyeTexture,rightEyeTexture;
+		if(mode=="multisense"){
+			leftEyeTexture = {(void*)m_LEyeTexture, vr::API_OpenGL, vr::ColorSpace_Gamma };
+			rightEyeTexture = {(void*)m_REyeTexture, vr::API_OpenGL, vr::ColorSpace_Gamma };
+		}else{
+			leftEyeTexture = {(void*)leftEyeDesc.m_nResolveTextureId, vr::API_OpenGL, vr::ColorSpace_Gamma };
+			rightEyeTexture = {(void*)rightEyeDesc.m_nResolveTextureId, vr::API_OpenGL, vr::ColorSpace_Gamma };
+		}
 		vr::VRCompositor()->Submit(vr::Eye_Left, &leftEyeTexture );
-		vr::Texture_t rightEyeTexture = {(void*)rightEyeDesc.m_nResolveTextureId, vr::API_OpenGL, vr::ColorSpace_Gamma };
 		vr::VRCompositor()->Submit(vr::Eye_Right, &rightEyeTexture );
 	}
 
@@ -974,31 +986,57 @@ bool CMainApplication::CreateAllShaders()
 bool CMainApplication::SetupTexturemaps()
 {
 	std::string strFullPath = ros::package::getPath("vive_image_view") + "/texture.png";
-	
+
 	std::vector<unsigned char> imageRGBA;
 	unsigned nImageWidth, nImageHeight;
 	unsigned nError = lodepng::decode( imageRGBA, nImageWidth, nImageHeight, strFullPath.c_str() );
+
 	
 	if ( nError != 0 )
 		return false;
 
 	glGenTextures(1, &m_iTexture );
 	glBindTexture( GL_TEXTURE_2D, m_iTexture );
-
-	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, nImageWidth, nImageHeight,
-		0, GL_RGBA, GL_UNSIGNED_BYTE, &imageRGBA[0] );
-
+	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, nImageWidth, nImageHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, &imageRGBA[0] );
 	glGenerateMipmap(GL_TEXTURE_2D);
-
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
-
 	GLfloat fLargest;
 	glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargest);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, fLargest);
-	 	
+	glBindTexture( GL_TEXTURE_2D, 0 );
+//	return ( m_iTexture != 0 );
+
+
+	glGenTextures(1, &m_LEyeTexture );
+	glBindTexture( GL_TEXTURE_2D, m_LEyeTexture );
+	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, nImageWidth, nImageHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, &imageRGBA[0] );
+//		glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, 490, 544, 0, GL_RGB, GL_UNSIGNED_BYTE, &imageRGBA[0] );
+	glGenerateMipmap(GL_TEXTURE_2D);
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
+	GLfloat fLargest_L;
+	glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargest_L);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, fLargest_L);
+	glBindTexture( GL_TEXTURE_2D, 0 );
+
+
+	glGenTextures(1, &m_REyeTexture );
+	glBindTexture( GL_TEXTURE_2D, m_REyeTexture );
+	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, nImageWidth, nImageHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, &imageRGBA[0] );
+//		glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, 490, 544, 0, GL_RGB, GL_UNSIGNED_BYTE, &imageRGBA[0] );
+	glGenerateMipmap(GL_TEXTURE_2D);
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
+	GLfloat fLargest_R;
+	glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargest_R);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, fLargest_R);
 	glBindTexture( GL_TEXTURE_2D, 0 );
 
 	return ( m_iTexture != 0 );
@@ -1459,17 +1497,109 @@ void CMainApplication::SetupDistortion()
 //-----------------------------------------------------------------------------
 void CMainApplication::RenderStereoTargets()
 {
+//static GLuint cb;
+//static bool first=true;
+//if(first){
+//glGenTextures(1, &cb);
+//glBindTexture(GL_TEXTURE_2D, cb);
+////glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_nRenderWidth, m_nRenderHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+//
+//glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, ros_image.cols, ros_image.rows, 0, GL_RGB, GL_UNSIGNED_BYTE, ros_image.data );
+//
+//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+//glBindTexture(GL_TEXTURE_2D, 0);
+//first=false;
+//}
+//
+//
+//glBindTexture(GL_TEXTURE_2D, cb);
+//glEnable(GL_TEXTURE_2D);
+//// 正方形を描く
+//glColor3d(1.0, 1.0, 1.0);
+//glBegin(GL_TRIANGLE_FAN);
+//glTexCoord2d(0.0, 0.0);
+//glVertex2d(-1.0, -1.0);
+//glTexCoord2d(1.0, 0.0);
+//glVertex2d( 1.0, -1.0);
+//glTexCoord2d(1.0, 1.0);
+//glVertex2d( 1.0,  1.0);
+//glTexCoord2d(0.0, 1.0);
+//glVertex2d(-1.0,  1.0);
+//glEnd();
+//// テクスチャマッピングを無効にする
+//glDisable(GL_TEXTURE_2D);
+//glBindTexture(GL_TEXTURE_2D, 0);
+//
+//
+//
+//
+//glBindFramebuffer( GL_FRAMEBUFFER, leftEyeDesc.m_nRenderFramebufferId );
+//glEnable(GL_TEXTURE_2D);
+//// 正方形を描く
+//glColor3d(1.0, 1.0, 1.0);
+//glBegin(GL_TRIANGLE_FAN);
+//glTexCoord2d(0.0, 0.0);
+//glVertex2d(-1.0, -1.0);
+//glTexCoord2d(1.0, 0.0);
+//glVertex2d( 1.0, -1.0);
+//glTexCoord2d(1.0, 1.0);
+//glVertex2d( 1.0,  1.0);
+//glTexCoord2d(0.0, 1.0);
+//glVertex2d(-1.0,  1.0);
+//glEnd();
+//// テクスチャマッピングを無効にする
+//glDisable(GL_TEXTURE_2D);
+//glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+//
+//glBindFramebuffer( GL_FRAMEBUFFER, leftEyeDesc.m_nResolveFramebufferId );
+//glEnable(GL_TEXTURE_2D);
+//// 正方形を描く
+//glColor3d(1.0, 1.0, 1.0);
+//glBegin(GL_TRIANGLE_FAN);
+//glTexCoord2d(0.0, 0.0);
+//glVertex2d(-1.0, -1.0);
+//glTexCoord2d(1.0, 0.0);
+//glVertex2d( 1.0, -1.0);
+//glTexCoord2d(1.0, 1.0);
+//glVertex2d( 1.0,  1.0);
+//glTexCoord2d(0.0, 1.0);
+//glVertex2d(-1.0,  1.0);
+//glEnd();
+//// テクスチャマッピングを無効にする
+//glDisable(GL_TEXTURE_2D);
+//glBindFramebuffer( GL_FRAMEBUFFER, 0 );
+//
+
+
+
 	glClearColor( 0.15f, 0.15f, 0.18f, 1.0f ); // nice background color, but not black
 	glEnable( GL_MULTISAMPLE );
 
 	// Left Eye
 	glBindFramebuffer( GL_FRAMEBUFFER, leftEyeDesc.m_nRenderFramebufferId );
  	glViewport(0, 0, m_nRenderWidth, m_nRenderHeight );
+// 	  glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, cb, 0);
+// 	 	  glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, cb, 0);
+
+
+//    GLsizei count = sizeof(indices) / sizeof(indices[0]);
+//    glDrawElements(GL_TRIANGLES, 100, GL_UNSIGNED_BYTE, 0);
+
+// 	  glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, cb, 0);
+
+// 	 glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, ros_image.cols, ros_image.rows, 0, GL_RGB, GL_UNSIGNED_BYTE, ros_image.data );
+
  	RenderScene( vr::Eye_Left );
+
+
  	glBindFramebuffer( GL_FRAMEBUFFER, 0 );
 	
 	glDisable( GL_MULTISAMPLE );
-	 	
+
+
  	glBindFramebuffer(GL_READ_FRAMEBUFFER, leftEyeDesc.m_nRenderFramebufferId);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, leftEyeDesc.m_nResolveFramebufferId );
 
@@ -1570,7 +1700,11 @@ void CMainApplication::RenderDistortion()
 	glUseProgram( m_unLensProgramID );
 
 	//render left lens (first half of index array )
-	glBindTexture(GL_TEXTURE_2D, leftEyeDesc.m_nResolveTextureId );
+	if(mode=="multisense"){
+		glBindTexture(GL_TEXTURE_2D, m_LEyeTexture );
+	}else{
+		glBindTexture(GL_TEXTURE_2D, leftEyeDesc.m_nResolveTextureId );
+	}
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
@@ -1578,7 +1712,11 @@ void CMainApplication::RenderDistortion()
 	glDrawElements( GL_TRIANGLES, m_uiIndexSize/2, GL_UNSIGNED_SHORT, 0 );
 
 	//render right lens (second half of index array )
-	glBindTexture(GL_TEXTURE_2D, rightEyeDesc.m_nResolveTextureId  );
+	if(mode=="multisense"){
+		glBindTexture(GL_TEXTURE_2D, m_REyeTexture );
+	}else{
+		glBindTexture(GL_TEXTURE_2D, rightEyeDesc.m_nResolveTextureId  );
+	}
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
@@ -1942,8 +2080,10 @@ bool g_do_dynamic_scaling;
 int g_colormap;
 
 
+cv::Mat scaled_image;
+
 CMainApplication *pMainApplication;
-ros::WallTime t_gl_old,t_gl_now,t_ros_old,t_ros_now,t_rcv_old,t_rcv_now;
+ros::WallTime t_gl_old,t_gl_now, t_ros_old,t_ros_now, t_cb_old,t_cb_now, t_cb_l_old,t_cb_l_now, t_cb_r_old,t_cb_r_now;
 bool imageCb_called = false;
 
 void reconfigureCb(image_view::ImageViewConfig &config, uint32_t level)
@@ -1954,13 +2094,24 @@ void reconfigureCb(image_view::ImageViewConfig &config, uint32_t level)
 }
 
 
+//bool CMainApplication::UpdateTexturemaps()
+//{
+//	glBindTexture( GL_TEXTURE_2D, m_iTexture );
+//
+//
+//
+//	cv::resize(ros_image, scaled_image, cv::Size(), 2048.0/ros_image.cols, 2048.0/ros_image.rows);
+//
+////	glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0,ros_image.cols, ros_image.rows,GL_RGB, GL_UNSIGNED_BYTE, ros_image.data );
+//	glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0,scaled_image.cols, scaled_image.rows,GL_RGB, GL_UNSIGNED_BYTE, scaled_image.data );
+//
+//	return ( m_iTexture != 0 );
+//}
+
 bool CMainApplication::UpdateTexturemaps()
 {
-//	glGenTextures(1, &m_iTexture );
 	glBindTexture( GL_TEXTURE_2D, m_iTexture );
-
-	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, ros_image.cols, ros_image.rows, 0, GL_RGB, GL_UNSIGNED_BYTE, ros_image.data );
-
+	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, ros_image.cols, ros_image.rows, 0, GL_RGB, GL_UNSIGNED_BYTE, ros_image.data );
 	glGenerateMipmap(GL_TEXTURE_2D);
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
 	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
@@ -1970,6 +2121,31 @@ bool CMainApplication::UpdateTexturemaps()
 	glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargest);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, fLargest);
 	glBindTexture( GL_TEXTURE_2D, 0 );
+
+	glBindTexture( GL_TEXTURE_2D, m_LEyeTexture );
+	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, ros_image_L.cols, ros_image_L.rows, 0, GL_RGB, GL_UNSIGNED_BYTE, ros_image_L.data );
+	glGenerateMipmap(GL_TEXTURE_2D);
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
+	GLfloat fLargest_L;
+	glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargest_L);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, fLargest_L);
+	glBindTexture( GL_TEXTURE_2D, 0 );
+
+	glBindTexture( GL_TEXTURE_2D, m_REyeTexture );
+	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, ros_image_R.cols, ros_image_R.rows, 0, GL_RGB, GL_UNSIGNED_BYTE, ros_image_R.data );
+	glGenerateMipmap(GL_TEXTURE_2D);
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
+	GLfloat fLargest_R;
+	glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargest_R);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, fLargest_R);
+	glBindTexture( GL_TEXTURE_2D, 0 );
+
 	return ( m_iTexture != 0 );
 }
 
@@ -1979,7 +2155,6 @@ bool CMainApplication::UpdateTexturemaps()
 void imageCb(const sensor_msgs::ImageConstPtr& msg)
 {
   boost::mutex::scoped_lock lock(g_image_mutex);
-
   // Convert to OpenCV native BGR color
   try {
     cv_bridge::CvtColorForDisplayOptions options;
@@ -1987,10 +2162,10 @@ void imageCb(const sensor_msgs::ImageConstPtr& msg)
     options.colormap = g_colormap;
 //    g_last_image = cv_bridge::cvtColorForDisplay(cv_bridge::toCvShare(msg), "", options)->image;
 //    pMainApplication->ros_image = cv_bridge::cvtColorForDisplay(cv_bridge::toCvShare(msg), "", options)->image;
-    pMainApplication->ros_image = cv_bridge::toCvShare(msg)->image;
-	t_rcv_now = ros::WallTime::now();
-	std::cout<<"imageCb() subscribed "<<pMainApplication->ros_image.cols<<" x "<<pMainApplication->ros_image.rows<<" @ "<<1.0/(t_rcv_now - t_rcv_old).toSec()<<" fps"<<std::endl;
-	t_rcv_old = t_rcv_now;
+    pMainApplication->ros_image = cv_bridge::toCvShare(msg)->image.clone();
+	t_cb_now = ros::WallTime::now();
+	std::cout<<"imageCb() subscribed "<<pMainApplication->ros_image.cols<<" x "<<pMainApplication->ros_image.rows<<" @ "<<1.0/(t_cb_now - t_cb_old).toSec()<<" fps"<<std::endl;
+	t_cb_old = t_cb_now;
     imageCb_called = true;
   } catch (cv_bridge::Exception& e) {
     ROS_ERROR_THROTTLE(30, "Unable to convert '%s' image for display: '%s'",
@@ -2003,6 +2178,55 @@ void imageCb(const sensor_msgs::ImageConstPtr& msg)
   }
 }
 
+cv::Mat tmp_l,tmp_r;
+
+void imageCb_L(const sensor_msgs::ImageConstPtr& msg)
+{
+  boost::mutex::scoped_lock lock(g_image_mutex);
+  try {
+    cv_bridge::CvtColorForDisplayOptions options;
+    options.do_dynamic_scaling = g_do_dynamic_scaling;
+    options.colormap = g_colormap;
+    tmp_l = cv_bridge::toCvShare(msg)->image.clone();// clone じゃないとダメ
+    cv::flip(tmp_l, tmp_l, -1); // 何故か反転
+	t_cb_l_now = ros::WallTime::now();
+	std::cout<<"imageCb_L() subscribed "<<tmp_l.cols<<" x "<<tmp_l.rows<<" @ "<<1.0/(t_cb_l_now - t_cb_l_old).toSec()<<" fps"<<std::endl;
+
+//	cv::cvtColor(tmp_l(cv::Rect(267-30,0,490-2,544-2)).clone(), pMainApplication->ros_image_L, CV_GRAY2RGB);
+	pMainApplication->ros_image_L = tmp_l.clone();
+//	cv::resize(pMainApplication->ros_image_L, pMainApplication->ros_image_L, cv::Size(640,480), cv::INTER_CUBIC);
+
+	t_cb_l_old = t_cb_l_now;
+    imageCb_called = true;
+  } catch (cv_bridge::Exception& e) {
+    ROS_ERROR_THROTTLE(30, "Unable to convert '%s' image for display: '%s'", msg->encoding.c_str(), e.what());
+  }
+}
+void imageCb_R(const sensor_msgs::ImageConstPtr& msg)
+{
+  boost::mutex::scoped_lock lock(g_image_mutex);
+  try {
+    cv_bridge::CvtColorForDisplayOptions options;
+    options.do_dynamic_scaling = g_do_dynamic_scaling;
+    options.colormap = g_colormap;
+    tmp_r = cv_bridge::toCvShare(msg)->image.clone();// clone じゃないとダメ
+    cv::flip(tmp_r, tmp_r, -1); // 何故か反転
+	t_cb_r_now = ros::WallTime::now();
+	std::cout<<"imageCb_R() subscribed "<<tmp_r.cols<<" x "<<tmp_r.rows<<" @ "<<1.0/(t_cb_r_now - t_cb_r_old).toSec()<<" fps"<<std::endl;
+	//Vive 1080×1200 vs multisense 1024x544
+
+//	cv::cvtColor(tmp_r(cv::Rect(267+30,0,490-2,544-2)).clone(), pMainApplication->ros_image_R, CV_GRAY2RGB);
+	pMainApplication->ros_image_R = tmp_r.clone();
+//	cv::resize(pMainApplication->ros_image_R, pMainApplication->ros_image_R, cv::Size(640,480), cv::INTER_CUBIC);
+
+	t_cb_r_old = t_cb_r_now;
+    imageCb_called = true;
+  } catch (cv_bridge::Exception& e) {
+    ROS_ERROR_THROTTLE(30, "Unable to convert '%s' image for display: '%s'", msg->encoding.c_str(), e.what());
+  }
+}
+
+
 static void mouseCb(int event, int x, int y, int flags, void* param)
 {
   if (event == cv::EVENT_LBUTTONDOWN) {
@@ -2011,16 +2235,12 @@ static void mouseCb(int event, int x, int y, int flags, void* param)
   } else if (event != cv::EVENT_RBUTTONDOWN) {
     return;
   }
-
   boost::mutex::scoped_lock lock(g_image_mutex);
-
   const cv::Mat &image = g_last_image;
-
   if (image.empty()) {
     ROS_WARN("Couldn't save image, no data!");
     return;
   }
-
   std::string filename = (g_filename_format % g_count).str();
   if (cv::imwrite(filename, image)) {
     ROS_INFO("Saved image %s", filename.c_str());
@@ -2032,10 +2252,12 @@ static void mouseCb(int event, int x, int y, int flags, void* param)
 }
 
 
-
 //-----------------------------------------------------------------------------
 // Purpose:
 //-----------------------------------------------------------------------------
+
+
+
 int main(int argc, char *argv[])
 {
 	 ros::init(argc, argv, "vive_image_view", ros::init_options::AnonymousName);
@@ -2044,11 +2266,20 @@ int main(int argc, char *argv[])
 	             "\t$ rosrun image_view image_view image:=<image topic> [transport]");
 	  }
 
+
 	  ros::NodeHandle nh;
 	  ros::NodeHandle local_nh("~");
 
 	  // Default window name is the resolved topic name
 	  std::string topic = nh.resolveName("image");
+
+	  local_nh.param("image_left", topic_L, std::string("/usb_cam/image_raw"));
+	  local_nh.param("image_right", topic_R, std::string("/usb_cam/image_raw"));
+	  local_nh.param("mode", mode, std::string("normal"));
+
+	  std::cout<<"topic = "<<topic<<std::endl;
+	  std::cout<<"topic_L = "<<topic_L<<std::endl;
+	  std::cout<<"topic_R = "<<topic_R<<std::endl;
 	  local_nh.param("window_name", g_window_name, topic);
 
 	  std::string format_string;
@@ -2070,18 +2301,15 @@ int main(int argc, char *argv[])
 	  //    2. rosparam '~image_transport'
 	  std::string transport;
 	  local_nh.param("image_transport", transport, std::string("raw"));
-//	  ros::V_string myargv;
-//	  ros::removeROSArgs(argc, argv, myargv);
-//	  for (size_t i = 1; i < myargv.size(); ++i) {
-//	    if (myargv[i][0] != '-') {
-//	      transport = myargv[i];
-//	      break;
-//	    }
-//	  }
 	  ROS_INFO_STREAM("Using transport \"" << transport << "\"");
 	  image_transport::ImageTransport it(nh);
 	  image_transport::TransportHints hints(transport, ros::TransportHints(), local_nh);
 	  image_transport::Subscriber sub = it.subscribe(topic, 1, imageCb, hints);
+	  image_transport::Subscriber sub_L,sub_R;
+	  if(mode=="multisense"){
+		  sub_L = it.subscribe(topic_L, 1, imageCb_L);
+		  sub_R = it.subscribe(topic_R, 1, imageCb_R);
+	  }
 
 //	  dynamic_reconfigure::Server<image_view::ImageViewConfig> srv;
 //	  dynamic_reconfigure::Server<image_view::ImageViewConfig>::CallbackType f =
@@ -2102,7 +2330,7 @@ int main(int argc, char *argv[])
 	SDL_StartTextInput();
 	SDL_ShowCursor( SDL_DISABLE );
 
-	t_gl_old = t_ros_old = t_rcv_old = ros::WallTime::now();
+	t_gl_old = t_ros_old = t_cb_old = t_cb_l_old = t_cb_r_old = ros::WallTime::now();
 
 	while ( !bQuit && ros::ok())
 	{
