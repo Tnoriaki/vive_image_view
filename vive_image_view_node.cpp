@@ -3,6 +3,8 @@
 
 #include <image_view/ImageViewConfig.h>
 #include <ros/ros.h>
+#include <tf/tf.h>
+#include <geometry_msgs/PoseStamped.h>
 #include <image_transport/image_transport.h>
 #include <dynamic_reconfigure/server.h>
 #include <cv_bridge/cv_bridge.h>
@@ -121,6 +123,7 @@ public:
 	CGLRenderModel *FindOrLoadRenderModel( const char *pchRenderModelName );
 	bool UpdateTexturemaps();
 	cv::Mat ros_image,ros_image_L,ros_image_R;
+	geometry_msgs::PoseStamped ros_hmd_pose;
 
 private: 
 	bool m_bDebugOpenGL;
@@ -991,6 +994,7 @@ bool CMainApplication::SetupTexturemaps()
 	unsigned nImageWidth, nImageHeight;
 	unsigned nError = lodepng::decode( imageRGBA, nImageWidth, nImageHeight, strFullPath.c_str() );
 
+	ros_image = cv::imread(strFullPath.c_str(), 1);
 	
 	if ( nError != 0 )
 		return false;
@@ -1823,6 +1827,41 @@ void CMainApplication::UpdateHMDMatrixPose()
 	if ( m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid )
 	{
 		m_mat4HMDPose = m_rmat4DevicePose[vr::k_unTrackedDeviceIndex_Hmd].invert();
+
+    tf::Matrix3x3 hmd_rot_mat;
+    tf::Vector3 hmd_pos_vec;
+		tf::Quaternion quat_vr_coord,quat_ros_coord;
+
+    for (int i=0; i<3; i++){
+      for (int o=0; o<3; o++){//0->3で左端列を下に進むらしい
+        hmd_rot_mat[i][o] = static_cast<double>(m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[i][o]);
+      }
+    }
+    for (int i=0; i<3; i++){
+      hmd_pos_vec[i] = static_cast<double>(m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[i][3]);
+    }
+    tf::Matrix3x3 vr2tf(-1,0,0, 0,1,0, 0,0,-1);//初期に向いている方向のオフセット("b"のレーザー照射器に対して後ろ向きがデフォになっている)
+    hmd_rot_mat = vr2tf.inverse() * hmd_rot_mat;
+    hmd_rot_mat.getRotation(quat_vr_coord);
+    quat_ros_coord.setX(-quat_vr_coord.z());//VR空間座標とROS空間座標の変換
+    quat_ros_coord.setY(-quat_vr_coord.x());
+    quat_ros_coord.setZ( quat_vr_coord.y());
+    quat_ros_coord.setW( quat_vr_coord.w());
+//    double r,p,y;
+//    tf::Matrix3x3(quat_tmp).getRPY(r,p,y);
+    //    std::cout<<"rpy:"<<r<<" , "<<p<<" , "<<y<<std::endl;
+//    std::cout<<"hmd_rot_mat:"<<std::endl
+//        <<hmd_rot_mat[0][0]<<" "<<hmd_rot_mat[0][1]<<" "<<hmd_rot_mat[0][2]<<std::endl
+//        <<hmd_rot_mat[1][0]<<" "<<hmd_rot_mat[1][1]<<" "<<hmd_rot_mat[1][2]<<std::endl
+//        <<hmd_rot_mat[2][0]<<" "<<hmd_rot_mat[2][1]<<" "<<hmd_rot_mat[2][2]<<std::endl;
+
+    ros_hmd_pose.pose.orientation.x = quat_ros_coord.x();
+    ros_hmd_pose.pose.orientation.y = quat_ros_coord.y();
+    ros_hmd_pose.pose.orientation.z = quat_ros_coord.z();
+    ros_hmd_pose.pose.orientation.w = quat_ros_coord.w();
+    ros_hmd_pose.pose.position.x  = hmd_pos_vec.x();
+    ros_hmd_pose.pose.position.y  = hmd_pos_vec.y();
+    ros_hmd_pose.pose.position.z  = hmd_pos_vec.z();
 	}
 }
 
@@ -2150,10 +2189,10 @@ bool CMainApplication::UpdateTexturemaps()
 }
 
 
-
-
 void imageCb(const sensor_msgs::ImageConstPtr& msg)
 {
+static bool firstcall = true;
+
   boost::mutex::scoped_lock lock(g_image_mutex);
   // Convert to OpenCV native BGR color
   try {
@@ -2163,9 +2202,9 @@ void imageCb(const sensor_msgs::ImageConstPtr& msg)
 //    g_last_image = cv_bridge::cvtColorForDisplay(cv_bridge::toCvShare(msg), "", options)->image;
 //    pMainApplication->ros_image = cv_bridge::cvtColorForDisplay(cv_bridge::toCvShare(msg), "", options)->image;
     pMainApplication->ros_image = cv_bridge::toCvShare(msg)->image.clone();
-	t_cb_now = ros::WallTime::now();
-	std::cout<<"imageCb() subscribed "<<pMainApplication->ros_image.cols<<" x "<<pMainApplication->ros_image.rows<<" @ "<<1.0/(t_cb_now - t_cb_old).toSec()<<" fps"<<std::endl;
-	t_cb_old = t_cb_now;
+    t_cb_now = ros::WallTime::now();
+    std::cout<<"imageCb() subscribed "<<pMainApplication->ros_image.cols<<" x "<<pMainApplication->ros_image.rows<<" @ "<<1.0/(t_cb_now - t_cb_old).toSec()<<" fps"<<std::endl;
+    t_cb_old = t_cb_now;
     imageCb_called = true;
   } catch (cv_bridge::Exception& e) {
     ROS_ERROR_THROTTLE(30, "Unable to convert '%s' image for display: '%s'",
@@ -2188,7 +2227,8 @@ void imageCb_L(const sensor_msgs::ImageConstPtr& msg)
     options.do_dynamic_scaling = g_do_dynamic_scaling;
     options.colormap = g_colormap;
     tmp_l = cv_bridge::toCvShare(msg)->image.clone();// clone じゃないとダメ
-    cv::flip(tmp_l, tmp_l, -1); // 何故か反転
+//    cv::flip(tmp_l, tmp_l, -1); // 何故か反転
+    cv::flip(tmp_l, tmp_l, 0); // 何故か反転
 	t_cb_l_now = ros::WallTime::now();
 	std::cout<<"imageCb_L() subscribed "<<tmp_l.cols<<" x "<<tmp_l.rows<<" @ "<<1.0/(t_cb_l_now - t_cb_l_old).toSec()<<" fps"<<std::endl;
 
@@ -2210,7 +2250,8 @@ void imageCb_R(const sensor_msgs::ImageConstPtr& msg)
     options.do_dynamic_scaling = g_do_dynamic_scaling;
     options.colormap = g_colormap;
     tmp_r = cv_bridge::toCvShare(msg)->image.clone();// clone じゃないとダメ
-    cv::flip(tmp_r, tmp_r, -1); // 何故か反転
+//    cv::flip(tmp_r, tmp_r, -1); // 何故か反転
+    cv::flip(tmp_r, tmp_r, 0); // 何故か反転
 	t_cb_r_now = ros::WallTime::now();
 	std::cout<<"imageCb_R() subscribed "<<tmp_r.cols<<" x "<<tmp_r.rows<<" @ "<<1.0/(t_cb_r_now - t_cb_r_old).toSec()<<" fps"<<std::endl;
 	//Vive 1080×1200 vs multisense 1024x544
@@ -2311,6 +2352,8 @@ int main(int argc, char *argv[])
 		  sub_R = it.subscribe(topic_R, 1, imageCb_R);
 	  }
 
+	  ros::Publisher ros_hmd_pose_pub = local_nh.advertise<geometry_msgs::PoseStamped>("/human_tracker_cam_ref", 1);
+
 //	  dynamic_reconfigure::Server<image_view::ImageViewConfig> srv;
 //	  dynamic_reconfigure::Server<image_view::ImageViewConfig>::CallbackType f =
 //	    boost::bind(&reconfigureCb, _1, _2);
@@ -2332,6 +2375,7 @@ int main(int argc, char *argv[])
 
 	t_gl_old = t_ros_old = t_cb_old = t_cb_l_old = t_cb_r_old = ros::WallTime::now();
 
+	ros::WallRate loop_rate(90);
 	while ( !bQuit && ros::ok())
 	{
 		if(imageCb_called){
@@ -2345,8 +2389,13 @@ int main(int argc, char *argv[])
 		pMainApplication->RenderFrame();
 		t_gl_now = ros::WallTime::now();
 		std::cout<<"pMainApplication->RenderFrame() @ "<<1.0/(t_gl_now - t_gl_old).toSec()<<" fps"<<std::endl;
+    pMainApplication->ros_hmd_pose.header.frame_id = "world";
+//    pMainApplication->ros_hmd_pose.header.stamp.Time = ros::WallTime::now();
+		ros_hmd_pose_pub.publish(pMainApplication->ros_hmd_pose);
+
 		t_gl_old = t_gl_now;
 		ros::spinOnce();
+		loop_rate.sleep();
 	}
 	SDL_StopTextInput();
 

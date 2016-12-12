@@ -23,5 +23,6 @@
   <arg unless="$(arg MODE_MULTISENSE)" name="MODE" default="normal" />
 
 
+
   <node name="vive_image_view_node" pkg="vive_image_view" type="vive_image_view_node" args="image:=$(arg IMAGE) _image_left:=$(arg IMAGE_LEFT) _image_right:=$(arg IMAGE_RIGHT) _mode:=$(arg MODE)" output="screen" required="true"/>
 </launch>
