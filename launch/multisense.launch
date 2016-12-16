@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<launch>
+	<remap from="image_left" to="/multisense_local/left/image_rect_color"/>
+	<remap from="image_right" to="/multisense_local/right/image_rect"/>
+	<remap from="camera_info_left" to="/multisense_local/left/camera_info"/>
+	<remap from="camera_info_right" to="/multisense_local/right/camera_info"/>
+  <include file="$(find vive_image_view)/launch/vive_image_view_base.launch">
+		<arg name="TF"   		default="false"/>
+		<arg name="DEBUG"   		default="false"/>
+		<arg name="MODE"   		default="stereo"/>
+  </include>
+</launch>

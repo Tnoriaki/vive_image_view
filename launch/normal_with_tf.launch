@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="IMAGE"  default="/usb_cam/image_raw"/>
+	<remap from="image" to="$(arg IMAGE)"/>
+  <include file="$(find vive_image_view)/launch/vive_image_view_base.launch">
+		<arg name="TF"   		value="true"/>
+		<arg name="DEBUG"   		default="false"/>
+		<arg name="MODE"   		default="normal"/>
+  </include>
+</launch>

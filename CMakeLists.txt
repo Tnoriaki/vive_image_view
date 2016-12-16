@@ -18,6 +18,7 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 set(CMAKE_BUILD_TYPE "Release")
+#set(CMAKE_BUILD_TYPE "Debug")
 
 catkin_package()
 
@@ -89,6 +90,7 @@ target_link_libraries (vive_image_view_node LINK_PUBLIC
 	${GLEW_LIBRARIES}
 	dl
 	GL
+	GLU
 	${GTK_LIBRARIES}#↓image_view
 	${GTK2_LIBRARIES}
 	${OpenCV_LIBRARIES}
