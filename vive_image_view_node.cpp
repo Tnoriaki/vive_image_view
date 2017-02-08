@@ -3,6 +3,7 @@
 #include <ros/ros.h>
 #include <tf/tf.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/PointStamped.h>
 #include <image_transport/image_transport.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/CameraInfo.h>
@@ -35,7 +36,7 @@
 
 
 std::string mode;
-ros::WallTime t_gl_old,t_gl_now, t_ros_old,t_ros_now, t_cb_old,t_cb_now, t_cb_l_old,t_cb_l_now, t_cb_r_old,t_cb_r_now;
+ros::WallTime t_gl_old,t_gl_now, t_ros_old,t_ros_now, t_cb_old,t_cb_now, t_cb_l_old,t_cb_l_now, t_cb_r_old,t_cb_r_now, t_cb_cp_old,t_cb_cp_now;
 bool ros_image_isNew_mono = false, ros_image_isNew[LR] = {false,false};
 double cam_f[LR][XY] = {{600,600},{600,600}};
 const double hmd_fov = 110*M_PI/180;//field of view
@@ -45,6 +46,7 @@ cv::Mat hmd_panel_img[LR] = {
     cv::Mat(cv::Size(1080, 1200), CV_8UC3, CV_RGB(0,0,0)),
     cv::Mat(cv::Size(1080, 1200), CV_8UC3, CV_RGB(0,0,0)),
 };
+double cp_ros[3];
 
 //TODO: proper linux compatibility
 #ifdef __linux__
@@ -1514,6 +1516,8 @@ void CGLRenderModel::Draw(){
 	glBindVertexArray( 0 );
 }
 
+std::string txt_ros;
+
 bool CMainApplication::UpdateTexturemaps(){
   if(mode=="normal" && ros_image_isNew_mono){
     glBindTexture( GL_TEXTURE_2D, m_iTexture );
@@ -1535,7 +1539,8 @@ bool CMainApplication::UpdateTexturemaps(){
     double cam_fov[LR][XY];
     int cam_pic_size_on_hmd[LR][XY];
     cv::Mat hmd_panel_roi[LR];
-    const cv::Point parallax_adjust[LR] = {cv::Point(+50,0),cv::Point(-50,0)};//視差調整用
+//    const cv::Point parallax_adjust[LR] = {cv::Point(+50,0),cv::Point(-50,0)};//視差調整用
+    const cv::Point parallax_adjust[LR] = {cv::Point(-50,0),cv::Point(+50,0)};//視差調整用
     for(int i=L;i<LR;i++){
       if(ros_image_isNew[i]){
         for(int j=X;j<XY;j++){
@@ -1543,7 +1548,25 @@ bool CMainApplication::UpdateTexturemaps(){
           cam_pic_size_on_hmd[i][j] = (int)( hmd_eye2panel_z[X] * 2*tan(cam_fov[i][j]/2) );
         }
         cv::resize(ros_image_stereo[i], ros_image_stereo_resized[i], cv::Size(cam_pic_size_on_hmd[i][X],cam_pic_size_on_hmd[i][Y]));
+
+
+        cv::putText(ros_image_stereo_resized[i], txt_ros, cv::Point(0,500), cv::FONT_HERSHEY_SIMPLEX, 1.2, cv::Scalar(0,250,250), 2, CV_AA);
+
         cv::flip(ros_image_stereo_resized[i],ros_image_stereo_resized[i],0);
+
+        double angle = cp_ros[1] * 300;
+        float scale = 1.0;
+        // 画像の中心を求める
+        cv::Point2f center(ros_image_stereo_resized[i].cols / 2.0, ros_image_stereo_resized[i].rows / 2.0 - 500);
+
+        // 回転
+        cv::Mat matrix = cv::getRotationMatrix2D( center, angle, scale );
+
+//        cv::Mat kaitenImg;
+        //画像を回転させる
+        cv::warpAffine(ros_image_stereo_resized[i], ros_image_stereo_resized[i], matrix, ros_image_stereo_resized[i].size());
+
+
 
         cv::Rect hmd_panel_area_rect( ros_image_stereo_resized[i].cols/2-hmd_panel_img[i].cols/2, ros_image_stereo_resized[i].rows/2-hmd_panel_img[i].rows/2, hmd_panel_img[i].cols, hmd_panel_img[i].rows);
         hmd_panel_area_rect += parallax_adjust[i];
@@ -1558,6 +1581,22 @@ bool CMainApplication::UpdateTexturemaps(){
         }
         cv::Rect hmd_panel_draw_rect( cropped_rect.x-hmd_panel_area_rect.x, cropped_rect.y-hmd_panel_area_rect.y, ros_image_stereo_resized[i].cols, ros_image_stereo_resized[i].rows);
         ros_image_stereo_resized[i].copyTo(hmd_panel_img[i](hmd_panel_draw_rect));
+
+
+
+
+//        std::string strFullPath = ros::package::getPath("vive_image_view") + "/texture.png";
+//
+//        std::vector<unsigned char> imageRGBA;
+//        unsigned nImageWidth, nImageHeight;
+//        unsigned nError = lodepng::decode( imageRGBA, nImageWidth, nImageHeight, strFullPath.c_str() );
+//        if ( nError != 0 ) return false;
+
+
+
+
+//        cv::putText(hmd_panel_img[i], txt_ros, cv::Point(0,500), cv::FONT_HERSHEY_SIMPLEX, 1.2, cv::Scalar(0,0,200), 2, CV_AA);
+
 
         int cur_tex_w,cur_tex_h;
         glBindTexture( GL_TEXTURE_2D, m_EyeTexture[i] );
@@ -1609,6 +1648,19 @@ void imageCb_R(const sensor_msgs::ImageConstPtr& msg){
 void infoCb_L(const sensor_msgs::CameraInfoConstPtr& msg){ cam_f[L][0] = msg->K[0]; cam_f[L][1] = msg->K[4];}
 void infoCb_R(const sensor_msgs::CameraInfoConstPtr& msg){ cam_f[R][0] = msg->K[0]; cam_f[R][1] = msg->K[4];}
 
+#include <sstream>
+void cpCb(const geometry_msgs::PointStampedConstPtr& msg){
+  cp_ros[0] = msg->point.x;
+  cp_ros[1] = msg->point.y;
+  cp_ros[2] = msg->point.z;
+  t_cb_cp_now = ros::WallTime::now();
+
+  std::ostringstream ostr;
+  ostr<<"cpCb() subscribed "<<msg->point.x<<" "<<msg->point.y<<" "<<msg->point.z<<" "<<" @ "<<1.0/(t_cb_cp_now - t_cb_cp_old).toSec()<<" fps";
+  txt_ros = ostr.str();
+  ROS_INFO_STREAM_THROTTLE(3.0,"cpCb() subscribed "<<msg->point.x<<" "<<msg->point.y<<" "<<msg->point.z<<" "<<" @ "<<1.0/(t_cb_cp_now - t_cb_cp_old).toSec()<<" fps");
+  t_cb_cp_old = t_cb_cp_now;
+}
 
 int main(int argc, char *argv[]){
 	 ros::init(argc, argv, "vive_image_view", ros::init_options::AnonymousName);
@@ -1638,7 +1690,7 @@ int main(int argc, char *argv[]){
 	  image_transport::ImageTransport it(nh);
 	  image_transport::TransportHints hints(transport, ros::TransportHints(), local_nh);
 	  image_transport::Subscriber sub,sub_L,sub_R;
-	  ros::Subscriber sub_i_L,sub_i_R;
+	  ros::Subscriber sub_i_L,sub_i_R,sub_cp;
 	  if(mode=="stereo"){
       sub_L = it.subscribe(topic_L, 1, imageCb_L);
       sub_R = it.subscribe(topic_R, 1, imageCb_R);
@@ -1647,6 +1699,7 @@ int main(int argc, char *argv[]){
 	  }else{
 	    sub = it.subscribe(topic, 1, imageCb, hints);
 	  }
+	  sub_cp = local_nh.subscribe("/act_capture_point", 1, cpCb);
 
 	  ros::Publisher ros_hmd_pose_pub = local_nh.advertise<geometry_msgs::PoseStamped>("/human_tracker_cam_ref", 1);
 
