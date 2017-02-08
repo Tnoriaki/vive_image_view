@@ -18,7 +18,7 @@
 	</group>
 
 	<group if="$(arg DEBUG)">
-  	<node name="vive_image_view_node" pkg="vive_image_view" type="vive_image_view_node" args="image:=$(arg IMAGE) _image_left:=$(arg IMAGE_L) _image_right:=$(arg IMAGE_R) _camera_info_left:=$(arg INFO_L) _camera_info_right:=$(arg INFO_R) _mode:=$(arg MODE)" output="screen" required="true" launch-prefix="gdb -ex run --args"/>
+  	<node name="vive_image_view_node" pkg="vive_image_view" type="vive_image_view_node" args="_mode:=$(arg MODE)" output="screen" required="true" launch-prefix="gdb -ex run --args"/>
 	</group>
 
 	<group unless="$(arg DEBUG)">

@@ -75,7 +75,7 @@ include_directories(
 )
 
 add_executable(vive_image_view_node
-  vive_image_view_node.cpp
+  src/vive_image_view_node.cpp
   ${OpenVR_SOURCE_DIR}/samples/shared/pathtools.cpp
 	${OpenVR_SOURCE_DIR}/samples/shared/lodepng.cpp
 	${OpenVR_SOURCE_DIR}/samples/shared/Matrices.cpp
