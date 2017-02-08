@@ -11,6 +11,7 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <boost/format.hpp>
 #include <boost/thread.hpp>
+#include <boost/bind.hpp>
 #include <boost/filesystem.hpp>
 #define X 0
 #define Y 1
@@ -18,6 +19,10 @@
 #define L 0
 #define R 1
 #define LR 2
+#define HMD 0
+#define LC 1
+#define RC 2
+#define HMD_LC_RC 3
 //========= Copyright Valve Corporation ============//
 
 #include <SDL.h>
@@ -33,9 +38,10 @@
 #include "shared/pathtools.h"
 
 
+bool VRCompositor_Ready = false;
 
 std::string mode;
-ros::WallTime t_gl_old,t_gl_now, t_ros_old,t_ros_now, t_cb_old,t_cb_now, t_cb_l_old,t_cb_l_now, t_cb_r_old,t_cb_r_now;
+ros::WallTime t_gl_old,t_gl_now, t_ros_old,t_ros_now, t_cb_old,t_cb_now, t_cb_l_old,t_cb_l_now, t_cb_r_old,t_cb_r_now, t_th_old,t_th_now;
 bool ros_image_isNew_mono = false, ros_image_isNew[LR] = {false,false};
 double cam_f[LR][XY] = {{600,600},{600,600}};
 const double hmd_fov = 110*M_PI/180;//field of view
@@ -97,7 +103,7 @@ public:
 	void RenderFrame();
 	bool SetupTexturemaps();
 	void SetupScene();
-	void AddCubeToScene( Matrix4 mat, std::vector<float> &vertdata );
+//	void AddCubeToScene( Matrix4 mat, std::vector<float> &vertdata );
 	void AddCubeVertex( float fl0, float fl1, float fl2, float fl3, float fl4, std::vector<float> &vertdata );
 	void DrawControllers();
 	bool SetupStereoRenderTargets();
@@ -117,7 +123,7 @@ public:
 	CGLRenderModel *FindOrLoadRenderModel( const char *pchRenderModelName );
 	bool UpdateTexturemaps();
 	cv::Mat ros_image_monoeye,ros_image_stereo[LR];
-	geometry_msgs::PoseStamped ros_hmd_pose;
+	geometry_msgs::PoseStamped ros_pose[HMD_LC_RC];
 private: 
 	bool m_bDebugOpenGL;
 	bool m_bVerbose;
@@ -569,7 +575,7 @@ void CMainApplication::RenderFrame(){
 		m_iTrackedControllerCount_Last = m_iTrackedControllerCount;
 		dprintf( "PoseCount:%d(%s) Controllers:%d\n", m_iValidPoseCount, m_strPoseClasses.c_str(), m_iTrackedControllerCount );
 	}
-	UpdateHMDMatrixPose();
+//	UpdateHMDMatrixPose();//move to thread
 }
 
 
@@ -801,43 +807,26 @@ bool CMainApplication::SetupTexturemaps(){
 }
 
 
-//-----------------------------------------------------------------------------
-// Purpose: create a sea of cubes
-//-----------------------------------------------------------------------------
 void CMainApplication::SetupScene(){
 	if ( !m_pHMD )return;
 
 	std::vector<float> vertdataarray;
 
-	Matrix4 matScale;
-	matScale.scale( m_fScale, m_fScale, m_fScale );
-	Matrix4 matTransform;
-	matTransform.translate(
-		-( (float)m_iSceneVolumeWidth * m_fScaleSpacing ) / 2.f,
-		-( (float)m_iSceneVolumeHeight * m_fScaleSpacing ) / 2.f,
-		-( (float)m_iSceneVolumeDepth * m_fScaleSpacing ) / 2.f);
-	
-	Matrix4 mat = matScale * matTransform;
+	Matrix4 mat;
+	mat.scale(10,10,1);
+	mat.translate(-5,-5,0);
+//  AddCubeToScene( mat, vertdataarray );
+  Vector4 A = mat * Vector4( 0, 0, 0, 1 );
+  Vector4 B = mat * Vector4( 1, 0, 0, 1 );
+  Vector4 C = mat * Vector4( 1, 1, 0, 1 );
+  Vector4 D = mat * Vector4( 0, 1, 0, 1 );
+  AddCubeVertex( B.x, B.y, B.z, 0, 1, vertdataarray ); //Back
+  AddCubeVertex( A.x, A.y, A.z, 1, 1, vertdataarray );
+  AddCubeVertex( D.x, D.y, D.z, 1, 0, vertdataarray );
+  AddCubeVertex( D.x, D.y, D.z, 1, 0, vertdataarray );
+  AddCubeVertex( C.x, C.y, C.z, 0, 0, vertdataarray );
+  AddCubeVertex( B.x, B.y, B.z, 0, 1, vertdataarray );
 
-//	for( int z = 0; z< m_iSceneVolumeDepth; z++ )
-//	{
-//		for( int y = 0; y< m_iSceneVolumeHeight; y++ )
-//		{
-//			for( int x = 0; x< m_iSceneVolumeWidth; x++ )
-//			{
-//				AddCubeToScene( mat, vertdataarray );
-//				mat = mat * Matrix4().translate( m_fScaleSpacing, 0, 0 );
-//			}
-//			mat = mat * Matrix4().translate( -((float)m_iSceneVolumeWidth) * m_fScaleSpacing, m_fScaleSpacing, 0 );
-//		}
-//		mat = mat * Matrix4().translate( 0, -((float)m_iSceneVolumeHeight) * m_fScaleSpacing, m_fScaleSpacing );
-//	}
-
-
-	Matrix4 mat2;
-	mat2.scale(10,10,1);
-	mat2.translate(-5,-5,0);
-	AddCubeToScene( mat2, vertdataarray );
 
 	m_uiVertcount = vertdataarray.size()/5;
 	
@@ -874,62 +863,6 @@ void CMainApplication::AddCubeVertex( float fl0, float fl1, float fl2, float fl3
 	vertdata.push_back( fl4 );
 }
 
-void CMainApplication::AddCubeToScene( Matrix4 mat, std::vector<float> &vertdata ){
-	// Matrix4 mat( outermat.data() );
-
-	Vector4 A = mat * Vector4( 0, 0, 0, 1 );
-	Vector4 B = mat * Vector4( 1, 0, 0, 1 );
-	Vector4 C = mat * Vector4( 1, 1, 0, 1 );
-	Vector4 D = mat * Vector4( 0, 1, 0, 1 );
-	Vector4 E = mat * Vector4( 0, 0, 1, 1 );
-	Vector4 F = mat * Vector4( 1, 0, 1, 1 );
-	Vector4 G = mat * Vector4( 1, 1, 1, 1 );
-	Vector4 H = mat * Vector4( 0, 1, 1, 1 );
-
-
-//	// triangles instead of quads
-//	AddCubeVertex( E.x, E.y, E.z, 0, 1, vertdata ); //Front
-//	AddCubeVertex( F.x, F.y, F.z, 1, 1, vertdata );
-//	AddCubeVertex( G.x, G.y, G.z, 1, 0, vertdata );
-//	AddCubeVertex( G.x, G.y, G.z, 1, 0, vertdata );
-//	AddCubeVertex( H.x, H.y, H.z, 0, 0, vertdata );
-//	AddCubeVertex( E.x, E.y, E.z, 0, 1, vertdata );
-
-	AddCubeVertex( B.x, B.y, B.z, 0, 1, vertdata ); //Back
-	AddCubeVertex( A.x, A.y, A.z, 1, 1, vertdata );
-	AddCubeVertex( D.x, D.y, D.z, 1, 0, vertdata );
-	AddCubeVertex( D.x, D.y, D.z, 1, 0, vertdata );
-	AddCubeVertex( C.x, C.y, C.z, 0, 0, vertdata );
-	AddCubeVertex( B.x, B.y, B.z, 0, 1, vertdata );
-
-//	AddCubeVertex( H.x, H.y, H.z, 0, 1, vertdata ); //Top
-//	AddCubeVertex( G.x, G.y, G.z, 1, 1, vertdata );
-//	AddCubeVertex( C.x, C.y, C.z, 1, 0, vertdata );
-//	AddCubeVertex( C.x, C.y, C.z, 1, 0, vertdata );
-//	AddCubeVertex( D.x, D.y, D.z, 0, 0, vertdata );
-//	AddCubeVertex( H.x, H.y, H.z, 0, 1, vertdata );
-//
-//	AddCubeVertex( A.x, A.y, A.z, 0, 1, vertdata ); //Bottom
-//	AddCubeVertex( B.x, B.y, B.z, 1, 1, vertdata );
-//	AddCubeVertex( F.x, F.y, F.z, 1, 0, vertdata );
-//	AddCubeVertex( F.x, F.y, F.z, 1, 0, vertdata );
-//	AddCubeVertex( E.x, E.y, E.z, 0, 0, vertdata );
-//	AddCubeVertex( A.x, A.y, A.z, 0, 1, vertdata );
-//
-//	AddCubeVertex( A.x, A.y, A.z, 0, 1, vertdata ); //Left
-//	AddCubeVertex( E.x, E.y, E.z, 1, 1, vertdata );
-//	AddCubeVertex( H.x, H.y, H.z, 1, 0, vertdata );
-//	AddCubeVertex( H.x, H.y, H.z, 1, 0, vertdata );
-//	AddCubeVertex( D.x, D.y, D.z, 0, 0, vertdata );
-//	AddCubeVertex( A.x, A.y, A.z, 0, 1, vertdata );
-//
-//	AddCubeVertex( F.x, F.y, F.z, 0, 1, vertdata ); //Right
-//	AddCubeVertex( B.x, B.y, B.z, 1, 1, vertdata );
-//	AddCubeVertex( C.x, C.y, C.z, 1, 0, vertdata );
-//	AddCubeVertex( C.x, C.y, C.z, 1, 0, vertdata );
-//	AddCubeVertex( G.x, G.y, G.z, 0, 0, vertdata );
-//	AddCubeVertex( F.x, F.y, F.z, 0, 1, vertdata );
-}
 
 
 //-----------------------------------------------------------------------------
@@ -1301,42 +1234,55 @@ void CMainApplication::UpdateHMDMatrixPose(){
 			m_strPoseClasses += m_rDevClassChar[nDevice];
 		}
 	}
-	if ( m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid ){
-		m_mat4HMDPose = m_rmat4DevicePose[vr::k_unTrackedDeviceIndex_Hmd].invert();
-    tf::Matrix3x3 hmd_rot_mat;
-    tf::Vector3 hmd_pos_vec;
-		tf::Quaternion quat_vr_coord,quat_ros_coord;
-    for (int i=0; i<3; i++){
-      for (int o=0; o<3; o++){//0->3で左端列を下に進むらしい
-        hmd_rot_mat[i][o] = static_cast<double>(m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[i][o]);
+
+  for( int nDevice = 0; nDevice < vr::k_unMaxTrackedDeviceCount; ++nDevice ) {
+    if ( m_rTrackedDevicePose[nDevice].bPoseIsValid ){
+      int dev_type = -1;
+      if( m_pHMD->GetTrackedDeviceClass(nDevice) == vr::TrackedDeviceClass_HMD){
+        dev_type = HMD;
+        m_mat4HMDPose = m_rmat4DevicePose[vr::k_unTrackedDeviceIndex_Hmd].invert();
+      }
+      else if( m_pHMD->GetTrackedDeviceClass(nDevice) == vr::TrackedDeviceClass_Controller){
+        if ( m_pHMD->GetControllerRoleForTrackedDeviceIndex(nDevice) == vr::TrackedControllerRole_LeftHand){ dev_type = LC; }
+        else if( m_pHMD->GetControllerRoleForTrackedDeviceIndex(nDevice) == vr::TrackedControllerRole_RightHand){ dev_type = RC; }
+      }
+      if(dev_type != -1){
+        tf::Matrix3x3 rot_mat;
+        tf::Vector3 pos_vec;
+        tf::Quaternion quat_vr_coord,quat_ros_coord;
+        for (int i=0; i<3; i++){
+          for (int o=0; o<3; o++){//0->3で左端列を下に進むらしい
+            rot_mat[i][o] = static_cast<double>(m_rTrackedDevicePose[nDevice].mDeviceToAbsoluteTracking.m[i][o]);
+          }
+        }
+        for (int i=0; i<3; i++){
+          pos_vec[i] = static_cast<double>(m_rTrackedDevicePose[nDevice].mDeviceToAbsoluteTracking.m[i][3]);
+        }
+        tf::Matrix3x3 vr2tf;//(-1,0,0, 0,1,0, 0,0,-1);//初期に向いている方向のオフセット("b"のレーザー照射器に対して後ろ向きがデフォになっている)
+        vr2tf.setRPY(0,M_PI,0);
+        rot_mat = vr2tf.inverse() * rot_mat;
+        pos_vec = vr2tf.inverse() * pos_vec;
+        rot_mat.getRotation(quat_vr_coord);
+        quat_ros_coord.setX(-quat_vr_coord.z());//VR空間座標とROS空間座標の変換
+        quat_ros_coord.setY(-quat_vr_coord.x());
+        quat_ros_coord.setZ( quat_vr_coord.y());
+        quat_ros_coord.setW( quat_vr_coord.w());
+        tf::Vector3 pos_tmp = pos_vec;
+        pos_vec.setX(-pos_tmp.z());
+        pos_vec.setY(-pos_tmp.x());
+        pos_vec.setZ(pos_tmp.y());
+
+        ros_pose[dev_type].pose.orientation.x = quat_ros_coord.x();
+        ros_pose[dev_type].pose.orientation.y = quat_ros_coord.y();
+        ros_pose[dev_type].pose.orientation.z = quat_ros_coord.z();
+        ros_pose[dev_type].pose.orientation.w = quat_ros_coord.w();
+        ros_pose[dev_type].pose.position.x  = pos_vec.x();
+        ros_pose[dev_type].pose.position.y  = pos_vec.y();
+        ros_pose[dev_type].pose.position.z  = pos_vec.z();
       }
     }
-    for (int i=0; i<3; i++){
-      hmd_pos_vec[i] = static_cast<double>(m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking.m[i][3]);
-    }
-    tf::Matrix3x3 vr2tf(-1,0,0, 0,1,0, 0,0,-1);//初期に向いている方向のオフセット("b"のレーザー照射器に対して後ろ向きがデフォになっている)
-    hmd_rot_mat = vr2tf.inverse() * hmd_rot_mat;
-    hmd_rot_mat.getRotation(quat_vr_coord);
-    quat_ros_coord.setX(-quat_vr_coord.z());//VR空間座標とROS空間座標の変換
-    quat_ros_coord.setY(-quat_vr_coord.x());
-    quat_ros_coord.setZ( quat_vr_coord.y());
-    quat_ros_coord.setW( quat_vr_coord.w());
-//    double r,p,y;
-//    tf::Matrix3x3(quat_tmp).getRPY(r,p,y);
-    //    std::cout<<"rpy:"<<r<<" , "<<p<<" , "<<y<<std::endl;
-//    std::cout<<"hmd_rot_mat:"<<std::endl
-//        <<hmd_rot_mat[0][0]<<" "<<hmd_rot_mat[0][1]<<" "<<hmd_rot_mat[0][2]<<std::endl
-//        <<hmd_rot_mat[1][0]<<" "<<hmd_rot_mat[1][1]<<" "<<hmd_rot_mat[1][2]<<std::endl
-//        <<hmd_rot_mat[2][0]<<" "<<hmd_rot_mat[2][1]<<" "<<hmd_rot_mat[2][2]<<std::endl;
+  }
 
-    ros_hmd_pose.pose.orientation.x = quat_ros_coord.x();
-    ros_hmd_pose.pose.orientation.y = quat_ros_coord.y();
-    ros_hmd_pose.pose.orientation.z = quat_ros_coord.z();
-    ros_hmd_pose.pose.orientation.w = quat_ros_coord.w();
-    ros_hmd_pose.pose.position.x  = hmd_pos_vec.x();
-    ros_hmd_pose.pose.position.y  = hmd_pos_vec.y();
-    ros_hmd_pose.pose.position.z  = hmd_pos_vec.z();
-	}
 }
 
 
@@ -1535,7 +1481,7 @@ bool CMainApplication::UpdateTexturemaps(){
     double cam_fov[LR][XY];
     int cam_pic_size_on_hmd[LR][XY];
     cv::Mat hmd_panel_roi[LR];
-    const cv::Point parallax_adjust[LR] = {cv::Point(+50,0),cv::Point(-50,0)};//視差調整用
+    const cv::Point parallax_adjust[LR] = {cv::Point(-50,0),cv::Point(+50,0)};//視差調整用
     for(int i=L;i<LR;i++){
       if(ros_image_isNew[i]){
         for(int j=X;j<XY;j++){
@@ -1610,59 +1556,88 @@ void infoCb_L(const sensor_msgs::CameraInfoConstPtr& msg){ cam_f[L][0] = msg->K[
 void infoCb_R(const sensor_msgs::CameraInfoConstPtr& msg){ cam_f[R][0] = msg->K[0]; cam_f[R][1] = msg->K[4];}
 
 
+void publishDevicePosesThread(int* publish_rate){
+  ros::NodeHandle node;
+  ros::Publisher ros_pose_pub[HMD_LC_RC];
+  ros_pose_pub[HMD] = node.advertise<geometry_msgs::PoseStamped>("/vive_head_pose", 1);
+  ros_pose_pub[LC] = node.advertise<geometry_msgs::PoseStamped>("/vive_lcon_pose", 1);
+  ros_pose_pub[RC] = node.advertise<geometry_msgs::PoseStamped>("/vive_rcon_pose", 1);
+  ros::WallRate loop_rate(*publish_rate);
+  while (ros::ok()){
+    if(VRCompositor_Ready){ ROS_INFO("vr::VRCompositor() ready. Starting publishDevicePosesThread()"); break; }
+    else{ ROS_INFO_THROTTLE(1.0,"publishDevicePosesThread() is waiting for vr::VRCompositor() initialization"); }
+  }
+  while (ros::ok()){
+    pMainApplication->UpdateHMDMatrixPose();
+    for(int i=0;i<HMD_LC_RC;i++){
+      pMainApplication->ros_pose[i].header.frame_id = "world_vive";
+      pMainApplication->ros_pose[i].header.stamp = ros::Time::now();
+      ros_pose_pub[i].publish(pMainApplication->ros_pose[i]);
+    }
+    loop_rate.sleep();
+//    ros::spinOnce();
+    t_th_now = ros::WallTime::now();
+    ROS_INFO_STREAM_THROTTLE(3.0,"UpdateHMDMatrixPose() @ "<<1.0/(t_th_now - t_th_old).toSec()<<" fps");
+    t_th_old = t_th_now;
+  }
+}
+
+
+
 int main(int argc, char *argv[]){
-	 ros::init(argc, argv, "vive_image_view", ros::init_options::AnonymousName);
-	  if (ros::names::remap("image") == "image") {
-	    ROS_WARN("Topic 'image' has not been remapped! Typical command-line usage:\n"
-	             "\t$ rosrun image_view image_view image:=<image topic> [transport]");
-	  }
-	  ros::NodeHandle nh;
-	  ros::NodeHandle local_nh("~");
-	  // Default window name is the resolved topic name
-    std::string topic = nh.resolveName("image");
-    std::string topic_L = nh.resolveName("image_left");
-    std::string topic_R = nh.resolveName("image_right");
-    std::string topic_i_L = nh.resolveName("camera_info_left");
-    std::string topic_i_R = nh.resolveName("camera_info_right");
-	  local_nh.param("mode", mode, std::string("normal"));
-	  std::cout<<"topic = "<<topic<<std::endl;
-    std::cout<<"topic_L = "<<topic_L<<std::endl;
-    std::cout<<"topic_R = "<<topic_R<<std::endl;
-    std::cout<<"topic_i_L = "<<topic_i_L<<std::endl;
-    std::cout<<"topic_i_R = "<<topic_i_R<<std::endl;
-    std::cout<<"mode = "<<mode<<std::endl;
+  ros::init(argc, argv, "vive_image_view", ros::init_options::AnonymousName);
+  if (ros::names::remap("image") == "image") {
+    ROS_WARN("Topic 'image' has not been remapped! Typical command-line usage:\n"
+             "\t$ rosrun image_view image_view image:=<image topic> [transport]");
+  }
+  ros::NodeHandle nh;
+  ros::NodeHandle local_nh("~");
+  // Default window name is the resolved topic name
+  std::string topic = nh.resolveName("image");
+  std::string topic_L = nh.resolveName("image_left");
+  std::string topic_R = nh.resolveName("image_right");
+  std::string topic_i_L = nh.resolveName("camera_info_left");
+  std::string topic_i_R = nh.resolveName("camera_info_right");
+  local_nh.param("mode", mode, std::string("normal"));
+  std::cout<<"topic = "<<topic<<std::endl;
+  std::cout<<"topic_L = "<<topic_L<<std::endl;
+  std::cout<<"topic_R = "<<topic_R<<std::endl;
+  std::cout<<"topic_i_L = "<<topic_i_L<<std::endl;
+  std::cout<<"topic_i_R = "<<topic_i_R<<std::endl;
+  std::cout<<"mode = "<<mode<<std::endl;
 
-	  std::string transport;
-	  local_nh.param("image_transport", transport, std::string("raw"));
-	  ROS_INFO_STREAM("Using transport \"" << transport << "\"");
-	  image_transport::ImageTransport it(nh);
-	  image_transport::TransportHints hints(transport, ros::TransportHints(), local_nh);
-	  image_transport::Subscriber sub,sub_L,sub_R;
-	  ros::Subscriber sub_i_L,sub_i_R;
-	  if(mode=="stereo"){
-      sub_L = it.subscribe(topic_L, 1, imageCb_L);
-      sub_R = it.subscribe(topic_R, 1, imageCb_R);
-      sub_i_L = local_nh.subscribe(topic_i_L, 1, infoCb_L);
-      sub_i_R = local_nh.subscribe(topic_i_R, 1, infoCb_R);
-	  }else{
-	    sub = it.subscribe(topic, 1, imageCb, hints);
-	  }
-
-	  ros::Publisher ros_hmd_pose_pub = local_nh.advertise<geometry_msgs::PoseStamped>("/human_tracker_cam_ref", 1);
-
-		pMainApplication = new CMainApplication( argc, argv );
+  std::string transport;
+  local_nh.param("image_transport", transport, std::string("raw"));
+  ROS_INFO_STREAM("Using transport \"" << transport << "\"");
+  image_transport::ImageTransport it(nh);
+  image_transport::TransportHints hints(transport, ros::TransportHints(), local_nh);
+  image_transport::Subscriber sub,sub_L,sub_R;
+  ros::Subscriber sub_i_L,sub_i_R;
+  if(mode=="stereo"){
+    sub_L = it.subscribe(topic_L, 1, imageCb_L);
+    sub_R = it.subscribe(topic_R, 1, imageCb_R);
+    sub_i_L = local_nh.subscribe(topic_i_L, 1, infoCb_L);
+    sub_i_R = local_nh.subscribe(topic_i_R, 1, infoCb_R);
+  }else{
+    sub = it.subscribe(topic, 1, imageCb, hints);
+  }
+  pMainApplication = new CMainApplication( argc, argv );
+  int rate_b = 90;
+  boost::thread thread_rosposepub(publishDevicePosesThread, &rate_b);
 
 	if (!pMainApplication->BInit())	{
 		pMainApplication->Shutdown();
 		return 1;
 	}
+	VRCompositor_Ready = true;
 	//RunMainLoop
 	bool bQuit = false;
 	SDL_StartTextInput();
 	SDL_ShowCursor( SDL_DISABLE );
-	t_gl_old = t_ros_old = t_cb_old = t_cb_l_old = t_cb_r_old = ros::WallTime::now();
+	t_gl_old = t_ros_old = t_cb_old = t_cb_l_old = t_cb_r_old = t_th_old = ros::WallTime::now();
 	ros::WallRate loop_rate(90);//HTC_Vive's MAX fps
 	while ( !bQuit && ros::ok())	{
+
 		if(ros_image_isNew_mono || ros_image_isNew[L] || ros_image_isNew[R]){
 			pMainApplication->UpdateTexturemaps();
 			t_ros_now = ros::WallTime::now();
@@ -1674,17 +1649,16 @@ int main(int argc, char *argv[]){
 		}
 		bQuit = pMainApplication->HandleInput();
 		pMainApplication->RenderFrame();
+
 		t_gl_now = ros::WallTime::now();
 		ROS_INFO_STREAM_THROTTLE(3.0,"RenderFrame() @ "<<1.0/(t_gl_now - t_gl_old).toSec()<<" fps");
-    pMainApplication->ros_hmd_pose.header.frame_id = "world";
-    pMainApplication->ros_hmd_pose.header.stamp = ros::Time::now();
-		ros_hmd_pose_pub.publish(pMainApplication->ros_hmd_pose);
 		t_gl_old = t_gl_now;
+
 		ros::spinOnce();
 		loop_rate.sleep();
 	}
 	SDL_StopTextInput();
-
+	thread_rosposepub.join();
 	pMainApplication->Shutdown();
 	return 0;
 }
