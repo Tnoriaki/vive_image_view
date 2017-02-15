@@ -41,12 +41,12 @@
 #include "shared/Matrices.h"
 #include "shared/pathtools.h"
 
+#include <sstream>
 
 
 bool VRCompositor_Ready = false;
 boost::mutex mtx;
-
-std::string mode;
+std::string txt_ros;
 ros::WallTime t_gl_old,t_gl_now, t_ros_old,t_ros_now, t_cb_old,t_cb_now, t_cb_l_old,t_cb_l_now, t_cb_r_old,t_cb_r_now, t_th_old,t_th_now, t_cb_cp_old,t_cb_cp_now;
 bool ros_image_isNew_mono = false, ros_image_isNew[LR] = {false,false};
 double cam_f[LR][XY] = {{600,600},{600,600}};
@@ -54,8 +54,8 @@ const double hmd_fov = 110*M_PI/180;//field of view
 const int hmd_panel_size[XY] = {1080,1200};//pixel
 cv::Mat ros_image_stereo_resized[LR];
 cv::Mat hmd_panel_img[LR] = {
-    cv::Mat(cv::Size(1080, 1200), CV_8UC3, CV_RGB(0,0,0)),
-    cv::Mat(cv::Size(1080, 1200), CV_8UC3, CV_RGB(0,0,0)),
+    cv::Mat(cv::Size(hmd_panel_size[X], hmd_panel_size[Y]), CV_8UC3, CV_RGB(0,0,0)),
+    cv::Mat(cv::Size(hmd_panel_size[X], hmd_panel_size[Y]), CV_8UC3, CV_RGB(0,0,0)),
 };
 double cp_ros[3];
 
@@ -63,6 +63,7 @@ enum IMAGE_VIEW_MODE{
   NORMAL,
   STEREO
 } view_mode;
+
 
 //TODO: proper linux compatibility
 #ifdef __linux__
@@ -232,5 +233,6 @@ void dprintf( const char *fmt, ... ){
 	OutputDebugStringA( buffer );
 }
 
+CMainApplication *pMainApplication;
 
 #endif

@@ -29,7 +29,7 @@ CMainApplication::CMainApplication( int argc, char *argv[] )
 	, m_iValidPoseCount_Last( -1 )
 	, m_iSceneVolumeInit( 20 )
 	, m_strPoseClasses("")
-	, m_bShowCubes( false )
+	, m_bShowCubes( true )
 {
 
 	for( int i = 1; i < argc; i++ )	{
@@ -147,6 +147,7 @@ bool CMainApplication::BInit(){
  	m_iTexture = 0;
 	m_EyeTexture[L] = m_EyeTexture[R] = 0;
  	m_uiVertcount = 0;
+ 	m_bShowCubes = (view_mode==IMAGE_VIEW_MODE::NORMAL);
 	if (!BInitGL())	{
 		printf("%s - Unable to initialize OpenGL!\n", __FUNCTION__);
 		return false;
@@ -276,17 +277,17 @@ bool CMainApplication::HandleInput(){
 	}
 	return bRet;
 }
-
-void CMainApplication::RunMainLoop(){
-	bool bQuit = false;
-	SDL_StartTextInput();
-	SDL_ShowCursor( SDL_DISABLE );
-	while ( !bQuit )	{
-		bQuit = HandleInput();
-		RenderFrame();
-	}
-	SDL_StopTextInput();
-}
+//
+//void CMainApplication::RunMainLoop(){
+//	bool bQuit = false;
+//	SDL_StartTextInput();
+//	SDL_ShowCursor( SDL_DISABLE );
+//	while ( !bQuit )	{
+//		bQuit = HandleInput();
+//		RenderFrame();
+//	}
+//	SDL_StopTextInput();
+//}
 
 
 //-----------------------------------------------------------------------------
@@ -541,100 +542,84 @@ bool CMainApplication::CreateAllShaders(){
 }
 
 bool CMainApplication::SetupTexturemaps(){
-	std::string strFullPath = ros::package::getPath("vive_image_view") + "/texture.png";
-
-	std::vector<unsigned char> imageRGBA;
-	unsigned nImageWidth, nImageHeight;
-  unsigned nError = lodepng::decode( imageRGBA, nImageWidth, nImageHeight, strFullPath.c_str() );
-	if ( nError != 0 ) return false;
-
-	glGenTextures(1, &m_iTexture );
-	glBindTexture( GL_TEXTURE_2D, m_iTexture );
-	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, nImageWidth, nImageHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, &imageRGBA[0] );
-	glGenerateMipmap(GL_TEXTURE_2D);
-	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-	glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
-	GLfloat fLargest;
-	glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargest);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, fLargest);
-	glBindTexture( GL_TEXTURE_2D, 0 );
-//	return ( m_iTexture != 0 );
-
-	GLubyte texture[1080][1200][3] = {255};
-	for(int i=0;i<1080;i++){
-    for(int j=0;j<1080;j++){
-      for(int k=0;k<3;k++){
-        texture[i][j][k] = 100;
-      }
-	  }
-	}
-	for(int i=L;i<LR;i++){
-	  glGenTextures(1, &m_EyeTexture[i] );
-	  glBindTexture( GL_TEXTURE_2D, m_EyeTexture[i] );
-	  glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, 1080, 1200, 0, GL_RGB, GL_UNSIGNED_BYTE, &texture[0] );
-	  glGenerateMipmap(GL_TEXTURE_2D);
-	  glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-	  glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-	  glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-	  glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
-	  GLfloat fLargest_tmp;
-	  glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargest_tmp);
-	  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, fLargest_tmp);
-	  glBindTexture( GL_TEXTURE_2D, 0 );
-	}
-
-	return ( m_iTexture != 0 );
+  if(view_mode==IMAGE_VIEW_MODE::STEREO){
+    cv::Mat gray(cv::Size(hmd_panel_size[X], hmd_panel_size[Y]), CV_8UC3, cv::Scalar(200,200,200));
+    for(int i=L;i<LR;i++){
+      glGenTextures(1, &m_EyeTexture[i] );
+      glBindTexture( GL_TEXTURE_2D, m_EyeTexture[i] );
+      glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, hmd_panel_size[X], hmd_panel_size[Y], 0, GL_RGB, GL_UNSIGNED_BYTE, gray.data );
+      glGenerateMipmap(GL_TEXTURE_2D);
+      glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+      glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+      glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+      glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
+      GLfloat fLargest_tmp;
+      glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargest_tmp);
+      glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, fLargest_tmp);
+      glBindTexture( GL_TEXTURE_2D, 0 );
+    }
+    return ( (m_EyeTexture[L]!=0) && (m_EyeTexture[R]!=0) );
+  }else{
+    std::string strFullPath = ros::package::getPath("vive_image_view") + "/texture.png";
+    std::vector<unsigned char> imageRGBA;
+    unsigned nImageWidth, nImageHeight;
+    unsigned nError = lodepng::decode( imageRGBA, nImageWidth, nImageHeight, strFullPath.c_str() );
+    if ( nError != 0 ) return false;
+    glGenTextures(1, &m_iTexture );
+    glBindTexture( GL_TEXTURE_2D, m_iTexture );
+    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, nImageWidth, nImageHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, &imageRGBA[0] );
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
+    GLfloat fLargest;
+    glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargest);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, fLargest);
+    glBindTexture( GL_TEXTURE_2D, 0 );
+    return ( m_iTexture != 0 );
+  }
 }
 
 
 void CMainApplication::SetupScene(){
 	if ( !m_pHMD )return;
+	if(view_mode==IMAGE_VIEW_MODE::NORMAL){
+    std::vector<float> vertdataarray;
+    Matrix4 mat;
+    mat.scale(10,10,1);
+    mat.translate(-5,-5,0);
+  //  AddCubeToScene( mat, vertdataarray );
+    Vector4 A = mat * Vector4( 0, 0, 0, 1 );
+    Vector4 B = mat * Vector4( 1, 0, 0, 1 );
+    Vector4 C = mat * Vector4( 1, 1, 0, 1 );
+    Vector4 D = mat * Vector4( 0, 1, 0, 1 );
+    AddCubeVertex( B.x, B.y, B.z, 0, 1, vertdataarray ); //Back
+    AddCubeVertex( A.x, A.y, A.z, 1, 1, vertdataarray );
+    AddCubeVertex( D.x, D.y, D.z, 1, 0, vertdataarray );
+    AddCubeVertex( D.x, D.y, D.z, 1, 0, vertdataarray );
+    AddCubeVertex( C.x, C.y, C.z, 0, 0, vertdataarray );
+    AddCubeVertex( B.x, B.y, B.z, 0, 1, vertdataarray );
 
-	std::vector<float> vertdataarray;
+    m_uiVertcount = vertdataarray.size()/5;
 
-	Matrix4 mat;
-	mat.scale(10,10,1);
-	mat.translate(-5,-5,0);
-//  AddCubeToScene( mat, vertdataarray );
-  Vector4 A = mat * Vector4( 0, 0, 0, 1 );
-  Vector4 B = mat * Vector4( 1, 0, 0, 1 );
-  Vector4 C = mat * Vector4( 1, 1, 0, 1 );
-  Vector4 D = mat * Vector4( 0, 1, 0, 1 );
-  AddCubeVertex( B.x, B.y, B.z, 0, 1, vertdataarray ); //Back
-  AddCubeVertex( A.x, A.y, A.z, 1, 1, vertdataarray );
-  AddCubeVertex( D.x, D.y, D.z, 1, 0, vertdataarray );
-  AddCubeVertex( D.x, D.y, D.z, 1, 0, vertdataarray );
-  AddCubeVertex( C.x, C.y, C.z, 0, 0, vertdataarray );
-  AddCubeVertex( B.x, B.y, B.z, 0, 1, vertdataarray );
-
-
-	m_uiVertcount = vertdataarray.size()/5;
-	
-	glGenVertexArrays( 1, &m_unSceneVAO );
-	glBindVertexArray( m_unSceneVAO );
-
-	glGenBuffers( 1, &m_glSceneVertBuffer );
-	glBindBuffer( GL_ARRAY_BUFFER, m_glSceneVertBuffer );
-	glBufferData( GL_ARRAY_BUFFER, sizeof(float) * vertdataarray.size(), &vertdataarray[0], GL_STATIC_DRAW);
-
-	glBindBuffer( GL_ARRAY_BUFFER, m_glSceneVertBuffer );
-
-	GLsizei stride = sizeof(VertexDataScene);
-	uintptr_t offset = 0;
-
-	glEnableVertexAttribArray( 0 );
-	glVertexAttribPointer( 0, 3, GL_FLOAT, GL_FALSE, stride , (const void *)offset);
-
-	offset += sizeof(Vector3);
-	glEnableVertexAttribArray( 1 );
-	glVertexAttribPointer( 1, 2, GL_FLOAT, GL_FALSE, stride, (const void *)offset);
-
-	glBindVertexArray( 0 );
-	glDisableVertexAttribArray(0);
-	glDisableVertexAttribArray(1);
-
+    glGenVertexArrays( 1, &m_unSceneVAO );
+    glBindVertexArray( m_unSceneVAO );
+    glGenBuffers( 1, &m_glSceneVertBuffer );
+    glBindBuffer( GL_ARRAY_BUFFER, m_glSceneVertBuffer );
+    glBufferData( GL_ARRAY_BUFFER, sizeof(float) * vertdataarray.size(), &vertdataarray[0], GL_STATIC_DRAW);
+    glBindBuffer( GL_ARRAY_BUFFER, m_glSceneVertBuffer );
+    GLsizei stride = sizeof(VertexDataScene);
+    uintptr_t offset = 0;
+    glEnableVertexAttribArray( 0 );
+    glVertexAttribPointer( 0, 3, GL_FLOAT, GL_FALSE, stride , (const void *)offset);
+    offset += sizeof(Vector3);
+    glEnableVertexAttribArray( 1 );
+    glVertexAttribPointer( 1, 2, GL_FLOAT, GL_FALSE, stride, (const void *)offset);
+    glBindVertexArray( 0 );
+    glDisableVertexAttribArray(0);
+    glDisableVertexAttribArray(1);
+  }
 }
 
 void CMainApplication::AddCubeVertex( float fl0, float fl1, float fl2, float fl3, float fl4, std::vector<float> &vertdata ){
@@ -644,7 +629,6 @@ void CMainApplication::AddCubeVertex( float fl0, float fl1, float fl2, float fl3
 	vertdata.push_back( fl3 );
 	vertdata.push_back( fl4 );
 }
-
 
 
 //-----------------------------------------------------------------------------
@@ -1244,26 +1228,24 @@ void CGLRenderModel::Draw(){
 	glBindVertexArray( 0 );
 }
 
-std::string txt_ros;
 
-bool CMainApplication::UpdateTexturemaps(){
-  if(view_mode==IMAGE_VIEW_MODE::STEREO){
-    //calc eye to HMD panel distance
-  //    const double hmd_eye2panel_z[XY] = { (double)hmd_panel_img[i].cols/2/tan(hmd_fov/2), (double)hmd_panel_img[i].rows/2/tan(hmd_fov/2) };
-    const double hmd_eye2panel_z[XY] = { (double)hmd_panel_img[L].rows/2/tan(hmd_fov/2), (double)hmd_panel_img[L].rows/2/tan(hmd_fov/2) };//[pixel]パネル距離水平垂直で違うのはおかしいので垂直画角を信じる
-    const double cam_pic_size[LR][XY] = { { (double)ros_image_stereo[L].cols, (double)ros_image_stereo[L].rows }, { (double)ros_image_stereo[R].cols, (double)ros_image_stereo[R].rows } };
-    double cam_fov[LR][XY];
-    int cam_pic_size_on_hmd[LR][XY];
-    cv::Mat hmd_panel_roi[LR];
-    const cv::Point parallax_adjust[LR] = {cv::Point(-50,0),cv::Point(+50,0)};//視差調整用
-  //    const cv::Point parallax_adjust[LR] = {cv::Point(+50,0),cv::Point(-50,0)};//視差調整用
-    for(int i=L;i<LR;i++){
-      if(ros_image_isNew[i]){
+void processROSStereoImage(cv::Mat (&in)[LR], cv::Mat (&out)[LR]){
+  //calc eye to HMD panel distance
+//    const double hmd_eye2panel_z[XY] = { (double)hmd_panel_img[i].cols/2/tan(hmd_fov/2), (double)hmd_panel_img[i].rows/2/tan(hmd_fov/2) };
+  const double hmd_eye2panel_z[XY] = { (double)out[L].rows/2/tan(hmd_fov/2), (double)out[L].rows/2/tan(hmd_fov/2) };//[pixel]パネル距離水平垂直で違うのはおかしいので垂直画角を信じる
+  const double cam_pic_size[LR][XY] = { { (double)in[L].cols, (double)in[L].rows }, { (double)in[R].cols, (double)in[R].rows } };
+  double cam_fov[LR][XY];
+  int cam_pic_size_on_hmd[LR][XY];
+  cv::Mat hmd_panel_roi[LR];
+  const cv::Point parallax_adjust[LR] = {cv::Point(-50,0),cv::Point(+50,0)};//視差調整用
+//    const cv::Point parallax_adjust[LR] = {cv::Point(+50,0),cv::Point(-50,0)};//視差調整用
+  for(int i=L;i<LR;i++){
+    if(ros_image_isNew[i]){
         for(int j=X;j<XY;j++){
           cam_fov[i][j] = 2*atan( cam_pic_size[i][j]/2 / cam_f[i][j] );
           cam_pic_size_on_hmd[i][j] = (int)( hmd_eye2panel_z[X] * 2*tan(cam_fov[i][j]/2) );
         }
-        cv::resize(ros_image_stereo[i], ros_image_stereo_resized[i], cv::Size(cam_pic_size_on_hmd[i][X],cam_pic_size_on_hmd[i][Y]));
+        cv::resize(in[i], ros_image_stereo_resized[i], cv::Size(cam_pic_size_on_hmd[i][X],cam_pic_size_on_hmd[i][Y]));
         cv::putText(ros_image_stereo_resized[i], txt_ros, cv::Point(0,500), cv::FONT_HERSHEY_SIMPLEX, 1.2, cv::Scalar(0,250,250), 2, CV_AA);
         cv::flip(ros_image_stereo_resized[i],ros_image_stereo_resized[i],0);
         double angle = cp_ros[1] * 300;
@@ -1275,7 +1257,7 @@ bool CMainApplication::UpdateTexturemaps(){
         //画像を回転させる
         cv::warpAffine(ros_image_stereo_resized[i], ros_image_stereo_resized[i], matrix, ros_image_stereo_resized[i].size());
 
-        cv::Rect hmd_panel_area_rect( ros_image_stereo_resized[i].cols/2-hmd_panel_img[i].cols/2, ros_image_stereo_resized[i].rows/2-hmd_panel_img[i].rows/2, hmd_panel_img[i].cols, hmd_panel_img[i].rows);
+        cv::Rect hmd_panel_area_rect( ros_image_stereo_resized[i].cols/2-out[i].cols/2, ros_image_stereo_resized[i].rows/2-out[i].rows/2, out[i].cols, out[i].rows);
         hmd_panel_area_rect += parallax_adjust[i];
         cv::Rect ros_image_stereo_resized_rect( 0, 0, ros_image_stereo_resized[i].cols, ros_image_stereo_resized[i].rows);
         cv::Point ros_image_stereo_resized_center(ros_image_stereo_resized[i].cols/2, ros_image_stereo_resized[i].rows/2);
@@ -1287,17 +1269,15 @@ bool CMainApplication::UpdateTexturemaps(){
           ros_image_stereo_resized[i] = ros_image_stereo_resized[i](cropped_rect);
         }
         cv::Rect hmd_panel_draw_rect( cropped_rect.x-hmd_panel_area_rect.x, cropped_rect.y-hmd_panel_area_rect.y, ros_image_stereo_resized[i].cols, ros_image_stereo_resized[i].rows);
-        ros_image_stereo_resized[i].copyTo(hmd_panel_img[i](hmd_panel_draw_rect));
-
-  //        std::string strFullPath = ros::package::getPath("vive_image_view") + "/texture.png";
-  //
-  //        std::vector<unsigned char> imageRGBA;
-  //        unsigned nImageWidth, nImageHeight;
-  //        unsigned nError = lodepng::decode( imageRGBA, nImageWidth, nImageHeight, strFullPath.c_str() );
-  //        if ( nError != 0 ) return false;
-
-  //        cv::putText(hmd_panel_img[i], txt_ros, cv::Point(0,500), cv::FONT_HERSHEY_SIMPLEX, 1.2, cv::Scalar(0,0,200), 2, CV_AA);
-
+        ros_image_stereo_resized[i].copyTo(out[i](hmd_panel_draw_rect));
+    }
+  }
+}
+bool CMainApplication::UpdateTexturemaps(){
+  if(view_mode==IMAGE_VIEW_MODE::STEREO){
+    processROSStereoImage(ros_image_stereo, hmd_panel_img);
+    for(int i=L;i<LR;i++){
+      if(ros_image_isNew[i]){
         int cur_tex_w,cur_tex_h;
         glBindTexture( GL_TEXTURE_2D, m_EyeTexture[i] );
         glGetTexLevelParameteriv( GL_TEXTURE_2D , 0 , GL_TEXTURE_WIDTH , &cur_tex_w );
@@ -1307,6 +1287,7 @@ bool CMainApplication::UpdateTexturemaps(){
         glBindTexture( GL_TEXTURE_2D, 0 );
       }
     }
+    return ( (m_EyeTexture[L]!=0) && (m_EyeTexture[R]!=0) );
   }else{
     glBindTexture( GL_TEXTURE_2D, m_iTexture );
     glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, ros_image_monoeye.cols, ros_image_monoeye.rows, 0, GL_RGB, GL_UNSIGNED_BYTE, ros_image_monoeye.data );
@@ -1319,11 +1300,11 @@ bool CMainApplication::UpdateTexturemaps(){
     glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &fLargest);
     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, fLargest);
     glBindTexture( GL_TEXTURE_2D, 0 );
+    return ( m_iTexture != 0 );
   }
-	return ( m_iTexture != 0 );
 }
 
-CMainApplication *pMainApplication;
+
 
 void convertImage(const sensor_msgs::ImageConstPtr& msg, cv::Mat& out){
   try {
@@ -1360,7 +1341,6 @@ void imageCb_R(const sensor_msgs::ImageConstPtr& msg){
 void infoCb_L(const sensor_msgs::CameraInfoConstPtr& msg){ cam_f[L][0] = msg->K[0]; cam_f[L][1] = msg->K[4];}
 void infoCb_R(const sensor_msgs::CameraInfoConstPtr& msg){ cam_f[R][0] = msg->K[0]; cam_f[R][1] = msg->K[4];}
 
-#include <sstream>
 void cpCb(const geometry_msgs::PointStampedConstPtr& msg){
   cp_ros[0] = msg->point.x;
   cp_ros[1] = msg->point.y;
@@ -1416,6 +1396,7 @@ int main(int argc, char *argv[]){
   std::string topic_R = nh.resolveName("image_right");
   std::string topic_i_L = nh.resolveName("camera_info_left");
   std::string topic_i_R = nh.resolveName("camera_info_right");
+  std::string mode;
   local_nh.param("mode", mode, std::string("normal"));
   std::cout<<"topic = "<<topic<<std::endl;
   std::cout<<"topic_L = "<<topic_L<<std::endl;
@@ -1444,7 +1425,7 @@ int main(int argc, char *argv[]){
   }else{
     sub = it.subscribe(topic, 1, imageCb, hints);
   }
-  sub_cp = local_nh.subscribe("/act_capture_point", 1, cpCb);
+  sub_cp = local_nh.subscribe("/act_capture_point_aaaaa", 1, cpCb);
   pMainApplication = new CMainApplication( argc, argv );
   int rate_b = 90;
   boost::thread thread_rosposepub(publishDevicePosesThread, &rate_b);
@@ -1461,7 +1442,6 @@ int main(int argc, char *argv[]){
 	t_gl_old = t_ros_old = t_cb_old = t_cb_l_old = t_cb_r_old = t_th_old = ros::WallTime::now();
 	ros::WallRate loop_rate(90);//HTC_Vive's MAX fps
 	while ( !bQuit && ros::ok())	{
-
 		if(ros_image_isNew_mono || ros_image_isNew[L] || ros_image_isNew[R]){
 			pMainApplication->UpdateTexturemaps();
 			t_ros_now = ros::WallTime::now();
