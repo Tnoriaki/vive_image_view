@@ -1238,7 +1238,6 @@ void processROSStereoImage(cv::Mat (&in)[LR], cv::Mat (&out)[LR]){
   int cam_pic_size_on_hmd[LR][XY];
   cv::Mat hmd_panel_roi[LR];
   const cv::Point parallax_adjust[LR] = {cv::Point(-50,0),cv::Point(+50,0)};//視差調整用
-//    const cv::Point parallax_adjust[LR] = {cv::Point(+50,0),cv::Point(-50,0)};//視差調整用
   for(int i=L;i<LR;i++){
     if(ros_image_isNew[i]){
         for(int j=X;j<XY;j++){
@@ -1248,15 +1247,9 @@ void processROSStereoImage(cv::Mat (&in)[LR], cv::Mat (&out)[LR]){
         cv::resize(in[i], ros_image_stereo_resized[i], cv::Size(cam_pic_size_on_hmd[i][X],cam_pic_size_on_hmd[i][Y]));
         cv::putText(ros_image_stereo_resized[i], txt_ros, cv::Point(0,500), cv::FONT_HERSHEY_SIMPLEX, 1.2, cv::Scalar(0,250,250), 2, CV_AA);
         cv::flip(ros_image_stereo_resized[i],ros_image_stereo_resized[i],0);
-        double angle = cp_ros[1] * 300;
         float scale = 1.0;
         // 画像の中心を求める
         cv::Point2f center(ros_image_stereo_resized[i].cols / 2.0, ros_image_stereo_resized[i].rows / 2.0 - 500);
-        // 回転
-        cv::Mat matrix = cv::getRotationMatrix2D( center, angle, scale );
-        //画像を回転させる
-        cv::warpAffine(ros_image_stereo_resized[i], ros_image_stereo_resized[i], matrix, ros_image_stereo_resized[i].size());
-
         cv::Rect hmd_panel_area_rect( ros_image_stereo_resized[i].cols/2-out[i].cols/2, ros_image_stereo_resized[i].rows/2-out[i].rows/2, out[i].cols, out[i].rows);
         hmd_panel_area_rect += parallax_adjust[i];
         cv::Rect ros_image_stereo_resized_rect( 0, 0, ros_image_stereo_resized[i].cols, ros_image_stereo_resized[i].rows);
@@ -1273,6 +1266,7 @@ void processROSStereoImage(cv::Mat (&in)[LR], cv::Mat (&out)[LR]){
     }
   }
 }
+
 bool CMainApplication::UpdateTexturemaps(){
   if(view_mode==IMAGE_VIEW_MODE::STEREO){
     processROSStereoImage(ros_image_stereo, hmd_panel_img);
@@ -1303,8 +1297,6 @@ bool CMainApplication::UpdateTexturemaps(){
     return ( m_iTexture != 0 );
   }
 }
-
-
 
 void convertImage(const sensor_msgs::ImageConstPtr& msg, cv::Mat& out){
   try {
@@ -1341,19 +1333,6 @@ void imageCb_R(const sensor_msgs::ImageConstPtr& msg){
 void infoCb_L(const sensor_msgs::CameraInfoConstPtr& msg){ cam_f[L][0] = msg->K[0]; cam_f[L][1] = msg->K[4];}
 void infoCb_R(const sensor_msgs::CameraInfoConstPtr& msg){ cam_f[R][0] = msg->K[0]; cam_f[R][1] = msg->K[4];}
 
-void cpCb(const geometry_msgs::PointStampedConstPtr& msg){
-  cp_ros[0] = msg->point.x;
-  cp_ros[1] = msg->point.y;
-  cp_ros[2] = msg->point.z;
-  t_cb_cp_now = ros::WallTime::now();
-
-  std::ostringstream ostr;
-  ostr<<"cpCb() subscribed "<<msg->point.x<<" "<<msg->point.y<<" "<<msg->point.z<<" "<<" @ "<<1.0/(t_cb_cp_now - t_cb_cp_old).toSec()<<" fps";
-  txt_ros = ostr.str();
-  ROS_INFO_STREAM_THROTTLE(3.0,"cpCb() subscribed "<<msg->point.x<<" "<<msg->point.y<<" "<<msg->point.z<<" "<<" @ "<<1.0/(t_cb_cp_now - t_cb_cp_old).toSec()<<" fps");
-  t_cb_cp_old = t_cb_cp_now;
-}
-
 void publishDevicePosesThread(int* publish_rate){
   ros::NodeHandle node;
   ros::Publisher ros_pose_pub[HMD_LC_RC];
@@ -1379,8 +1358,6 @@ void publishDevicePosesThread(int* publish_rate){
     t_th_old = t_th_now;
   }
 }
-
-
 
 int main(int argc, char *argv[]){
   ros::init(argc, argv, "vive_image_view", ros::init_options::AnonymousName);
@@ -1411,7 +1388,7 @@ int main(int argc, char *argv[]){
   image_transport::ImageTransport it(nh);
   image_transport::TransportHints hints(transport, ros::TransportHints(), local_nh);
   image_transport::Subscriber sub,sub_L,sub_R;
-  ros::Subscriber sub_i_L,sub_i_R,sub_cp;
+  ros::Subscriber sub_i_L,sub_i_R;
   if(mode=="stereo"){
     view_mode = IMAGE_VIEW_MODE::STEREO;
   }else{
@@ -1425,7 +1402,6 @@ int main(int argc, char *argv[]){
   }else{
     sub = it.subscribe(topic, 1, imageCb, hints);
   }
-  sub_cp = local_nh.subscribe("/act_capture_point_aaaaa", 1, cpCb);
   pMainApplication = new CMainApplication( argc, argv );
   int rate_b = 90;
   boost::thread thread_rosposepub(publishDevicePosesThread, &rate_b);

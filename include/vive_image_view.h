@@ -57,7 +57,6 @@ cv::Mat hmd_panel_img[LR] = {
     cv::Mat(cv::Size(hmd_panel_size[X], hmd_panel_size[Y]), CV_8UC3, CV_RGB(0,0,0)),
     cv::Mat(cv::Size(hmd_panel_size[X], hmd_panel_size[Y]), CV_8UC3, CV_RGB(0,0,0)),
 };
-double cp_ros[3];
 
 enum IMAGE_VIEW_MODE{
   NORMAL,
