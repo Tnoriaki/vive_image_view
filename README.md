@@ -9,7 +9,7 @@ test for HTC_Vive - ROS visual connection
 * Device access permission is allowd on hidraw* 
 * OpenVR sample can be executed with no problem (latest steam may be unstable now(2016/10) ...)
 
-#Usage
+#　Usage
 ```
 $ roscore
 $ rosrun usb_cam usb_cam_node
